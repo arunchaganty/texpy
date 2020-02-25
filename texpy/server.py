@@ -19,6 +19,7 @@ from jinja2.filters import htmlsafe_json_dumps
 
 from .experiment import Experiment
 from .util import sanitize
+from .commands import get_reward
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +41,7 @@ class ExperimentViewer:
     def __init__(self, exp: Experiment, **variables):
         self.exp: Experiment = exp
         self.config: dict = exp.config
+        self.config["Reward"] = get_reward(self.config)
         self.inputs: List[dict] = exp.loadl("inputs.jsonl")
 
         self.hits: List[Optional[dict]] = exp.loadl("hits.jsonl") if exp.exists("hits.jsonl") else [None for _ in self.inputs]
@@ -60,7 +62,7 @@ class ExperimentViewer:
         """
         def per_task_info(task_: int):
             return {
-                "hasAggregated": self.agg and self.agg[task_],
+                "hasAggregated": self.agg and task_ < len(self.agg) and self.agg[task_],
                 "responses": [r["_Meta"]["WorkerId"] for r in self.outputs[task_]] if self.outputs else [],
             }
 
