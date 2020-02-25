@@ -5,9 +5,13 @@ import numpy as np
 import scipy.stats as scstats
 from typing import List, TypeVar, Dict, Any, Tuple, Optional, Iterable, Callable
 from .aggregators import mean, std, median, percentile, median_absolute_deviation
+from .util import Span, WeightedSpan, collapse_spans
 
 T = TypeVar('T')
 W = TypeVar('W')
+
+
+Span = Tuple[int, int]
 
 
 # region: dictionary manipulation
@@ -90,13 +94,35 @@ def modified_z_score(prefix: str, values: List[float], cutoff: float = 3.5) -> D
 def _nominal_agreement(a: T, b: T) -> int:
     return int(a == b)
 
+def _span_agreement(a: List[Span], b: List[Span]) -> float:
+    """
+    We define agreement as Jaccard similarity of the spans
+    """
+    spans: List[WeightedSpan] = collapse_spans(a + b)
+
+    if not spans:
+        return 1
+
+    union = sum(span.end - span.begin for span in spans)
+    # Span count can only be greater than 1 if both a and b match.
+    intersection = sum(span.end - span.begin for span in spans if span.count > 1)
+
+    return intersection / union
+
 
 def _ordinal_agreement(a: float, b: float, n_values: int) -> float:
     return 1 - abs(a - b) / (n_values - 1)
 
 
 def _nominal_metric(a: T, b: T) -> int:
-    return int(a != b)
+    return 1 - _nominal_agreement(a, b)
+
+
+def _span_metric(a: List[Span], b: List[Span]) -> float:
+    """
+    We define the metric as the Jaccard distance of the spans
+    """
+    return 1 - _span_agreement(a, b)
 
 
 def _interval_metric(a: float, b: float) -> float:
@@ -238,12 +264,12 @@ def simple_agreement(task_worker_values: Dict[T, Dict[W, Any]],
     :return:
     """
     # Infer values
-    assert mode in ["nominal", "ordinal"], "Unsupported mode: {mode}"
-    assert mode != "ordinal" or n_values is not None, "Must provide n_values if mode is 'ordinal'"
-
     if mode == "nominal":
         fn = _nominal_agreement
+    elif mode == "span":
+        fn = _span_agreement
     elif mode == "ordinal":
+        assert n_values is not None, "Must provide n_values if mode is 'ordinal'"
         fn = lambda a, b: _ordinal_agreement(a, b, n_values)
     else:
         raise ValueError("Invalid mode {}".format(mode))
@@ -298,12 +324,12 @@ def mean_agreement(task_worker_values: Dict[T, Dict[W, Any]], agg: Dict[T, Any],
     :return:
     """
     # Infer values
-    assert mode in ["nominal", "ordinal"], "Unsupported mode: {mode}"
-    assert mode != "ordinal" or n_values is not None, "Must provide n_values if mode is 'ordinal'"
-
     if mode == "nominal":
         fn = _nominal_agreement
+    if mode == "span":
+        fn = _span_agreement
     elif mode == "ordinal":
+        assert n_values is not None, "Must provide n_values if mode is 'ordinal'"
         fn = lambda a, b: _ordinal_agreement(a, b, n_values)
     else:
         raise ValueError("Invalid mode {}".format(mode))

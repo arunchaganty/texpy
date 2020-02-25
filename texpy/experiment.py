@@ -88,6 +88,34 @@ class TaskHelper:
         """
         pass
 
+    def update_worker_qualification(self,
+            worker_id: str,
+            metrics: dict,
+            decisions: List[QualityControlDecision],
+            current_qualification_value: int
+            ) -> int:
+        """
+        The quality checking routine.
+        :param input_  : input object given to the HIT
+        :param response: A worker's response (an element of outputs)
+        :param agg     : Aggregated response for this task (as returned by aggregate_responses())
+        :param metrics : Metrics computed over all the data (as returned by compute_metrics())
+
+        :returns       : a list of quality control decisions. Each decision
+                         weighs on accepting or rejecting the task and
+                         gives some feedback back to the worker. We reject
+                         if any of the returned decisions are to reject the
+                         HIT.
+        """
+        if any(decision.qualification_value is not None for decision in decisions):
+            return max(decision.qualification_value or 0
+                       for decision in decisions)
+        elif any(decision.qualification_update is not None for decision in decisions):
+            return current_qualification_value + sum(decision.qualification_update or 0
+                                                     for decision in decisions)
+        else:
+            current_qualification_value
+
     @property
     def rejection_email_format(self) -> str:
         """

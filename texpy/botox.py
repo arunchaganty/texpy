@@ -61,7 +61,7 @@ def get_qualification(conn, qual_id: str, worker_id: str) -> int:
     return resp['Qualification']['IntegerValue']
 
 
-def set_qualification(conn, qual_id: str, worker_id: str, value: int):
+def set_qualification(conn, qual_id: str, worker_id: str, value: int, *, reason: str = ""):
     """
     Update Qualification value for a user.
     """
@@ -72,9 +72,16 @@ def set_qualification(conn, qual_id: str, worker_id: str, value: int):
         SendNotification=False,
     )
 
+    if reason:
+        message_worker(conn, "Feedback on task", f"""\
+We just wanted to share some feedback on your work: we have noted that
+{reason}. We aren't rejecting your HIT, but have decreased your
+qualification score to {value}. Contact us if you
+would like more details.""", worker_id)
+
 
 def update_qualifications(conn, qual_id: str, worker_id: str, update: int,
-                          min_limit: int = 0, max_limit: int = 105, reason: str = "") -> int:
+                          min_limit: int = 0, max_limit: int = 105, *, reason: str = "") -> int:
     """
     Update a worker's qualification. 
 
@@ -400,16 +407,15 @@ def approve_assignment(conn, output: dict, override_rejection: bool = True):
             raise e
 
 
-def reject_assignment(conn, output: dict, feedback: str):
+def reject_assignment(conn, meta: dict, feedback: str):
     """
-    Approves the assignment in @output.
-    At the end of this routine, output[_Meta][AssignmentStatus] will have been set to true.
+    Rejects the assignment in @meta.
+    At the end of this routine, meta[AssignmentStatus] will have been set to Rejected.
     :param conn: MTurk Connection
     :param output: Assignment
     :param feedback: Message to be sent to the worker.
     :return: None
     """
-    meta = output["_Meta"]
     try:
         conn.reject_assignment(
             AssignmentId=meta['AssignmentId'],

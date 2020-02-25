@@ -116,6 +116,26 @@ class Task(TaskHelper):
                     quality_control_update=+5))
         return ret
 
+    def update_worker_qualification(self,
+            worker_id: str,
+            metrics: dict,
+            decisions: List[QualityControlDecision],
+            current_qualification_value: int) -> int:
+        """
+        Quality checking routines centered around the worker.
+        :param input_  : input object given to the HIT
+        :param response: A worker's response (an element of outputs)
+        :param agg     : Aggregated response for this task (as returned by aggregate_responses())
+        :param metrics : Metrics computed over all the data (as returned by compute_metrics())
+
+        :returns       : a list of quality control decisions. Each decision
+                         weighs on accepting or rejecting the task and
+                         gives some feedback back to the worker. We reject
+                         if any of the returned decisions are to reject the
+                         HIT. An empty list does not update qualifications and is assumed to be an approval.
+        """
+        return current_qualification_value
+
     def rejection_email(response, reasons) -> str:
         """
         The text of an email sent out to workers when their work has

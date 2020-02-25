@@ -1,13 +1,89 @@
 """
-Various data aggregation routines.
+Data aggregation routines.
+
+This package contains a variety of routines that can be used to combine
+annotations from multiple workers. These routines will typically be used
+by :func:`texpy.experiment.TaskHelper.aggregate_responses`.
 """
-from typing import List, TypeVar, Callable, Optional
+from typing import List, TypeVar, Callable, Optional, Tuple, NamedTuple
 from collections import Counter
 import numpy as np
 import scipy.stats as scstats
 
+from .util import Span, WeightedSpan, collapse_spans
+
 T = TypeVar("T")
 U = TypeVar("U")
+
+
+Span = Tuple[int, int]
+
+
+def majority_interval(lst: List[List[Span]]) -> List[Span]:
+    """
+    Aggregates a list of intervals
+
+    Example (annotations are the underlines):
+    This is an example
+    ----
+    ----    ----------
+            ----------
+    ------------------
+
+    would result in
+    This is an example
+    ----    ----------
+    """
+    # 1. Collapse spans into non-overlapping sets weighted by frequency
+    canonical_spans: List[WeightedSpan] = collapse_spans([
+        span for spans in lst for span in spans])
+
+    # 3. Filter to only majoritarian spans
+    ret = [(span.begin, span.end) for span in canonical_spans if span.count >= len(lst)/2]
+
+    # 4. Collapse adjacent intervals that were selected
+    for i in range(len(ret)-1, 0, -1):
+        span, prev_span = ret[i], ret[i-1]
+        if prev_span[1] == span[0]:
+            ret.pop(i)
+            ret[i-1] = (prev_span[0], span[1])
+
+    return ret
+
+
+def test_majority_interval():
+    # This is an example
+    # ----
+    # ----    ----------
+    #         ----------
+    # ------------------
+    assert [(0, 4), (8, 18)] == majority_interval([
+        [(0, 4),],
+        [(0, 4), (8, 18)],
+        [(8, 18),],
+        [(0, 18)],
+        ])
+
+    assert [(0, 4), (8, 18)] == majority_interval([
+        [(0, 4),],
+        [(8, 18),],
+        [(0, 4), (8, 18)],
+        [(0, 18)],
+        ])
+
+    # This is an example
+    # ----
+    # ----    ----------
+    #         ----------
+    # --------------    
+    #   -------------   
+    assert [(0, 4), (8, 16)] == majority_interval([
+        [(0, 4),],
+        [(0, 4), (8, 18)],
+        [(8, 18),],
+        [(0, 15)],
+        [(2, 16)],
+        ])
 
 
 def transpose(lst: List[List[T]]) -> List[List[T]]:
@@ -52,4 +128,4 @@ percentile = _guard(_float(np.percentile))
 
 
 __all__ = ['mean', 'std', 'median', 'median_absolute_deviation', 'mode', 'trim_mean', 'percentile',
-           'transpose', 'apply_list', 'majority_vote', ]
+           'transpose', 'apply_list', 'majority_vote', 'majority_interval']

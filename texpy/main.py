@@ -21,6 +21,7 @@ from .commands import launch_task, sync_task, check_task, pay_task, aggregate_ta
 from .experiment import Experiment, find_experiment
 from .server import serve_viewer
 from .util import force_user_input, first
+from .quality_control import QualityControlDecision
 
 logger = logging.getLogger(__name__)
 
@@ -174,25 +175,32 @@ def do_check(args):
     rejects = [response for responses in outputs for response in responses if not response["_Meta"]["ShouldApprove"]]
 
     for response in tqdm(rejects):
-        print("== {response[_Meta][HITId]}/{response[_Meta][AssignmentId]} ==")
+        meta = response["_Meta"]
+        print(f"== {meta['HITId']}/{meta['AssignmentId']} ==")
         print("=== Worker Output ===")
         pprint(response)
         print("=== Rejection Email ===")
         print(exp.helper.rejection_email(response, char_limit=9999))
         print()
-        confirmation = force_user_input("We are about to reject {response[_Meta][AssignmentId]}. "
+        confirmation = force_user_input(f"We are about to reject {meta['AssignmentId']}. "
                                         "Please confirm (r)eject, (a)pprove, (s)kip: ",
                                         ["r", "a", "s"])
         if confirmation == "a":
-            response["_Meta"]["ShouldApprove"] = True
+            meta["ShouldApprove"] = True
             # Undo the qualification update in the rejection.
-            if response["_Meta"]["AssignmentStatus"] == "Rejected":
-                response["_Meta"]["QualificationUpdate"] = 50
-                del response["_Meta"]["QualificationUpdated"]
-            else:
-                response["_Meta"]["QualificationUpdate"] = 5
+            if meta["AssignmentStatus"] == "Rejected":
+                # Make sure we update qualifications
+                meta["QualificationUpdated"] = None
+            meta["QualityControlDecisions"] = [
+                QualityControlDecision(
+                    should_approve=True,
+                    short_reason="Approved",
+                    reason="Approved",
+                    qualification_value=71,
+                    )
+            ]
         elif confirmation == "s":
-            response["_Meta"]["ShouldApprove"] = None
+            meta["ShouldApprove"] = None
         # TODO: support for custom rejection messages.
 
     # Save the output
@@ -216,26 +224,33 @@ def do_pay(args):
     # 0. Find experiment dir.
     exp = find_experiment(args.root, args.exp)
 
+    def _is_pending(response):
+        if "ShouldApprove" not in response["_Meta"]:
+            return False
+        if response["_Meta"]["AssignmentStatus"] == "Submitted":
+            return True
+        # Anyone with an approved assignment who is now going to be
+        # rejected?
+        if response["_Meta"]["AssignmentStatus"] == "Accepted" and not response["_Meta"]["ShouldApprove"]:
+            return True
+        # Anyone who is still waiting on a bonus
+        if response["_Meta"]["Bonus"] > 0 and not response["_Meta"]["BonusPaid"]:
+            return True
+
     # Get summary of task.
     outputs = exp.loadl("outputs.jsonl")
-    pending_assns = [response for responses in outputs for response in responses
-                     if "ShouldApprove" in response["_Meta"] and
-                     (response["_Meta"]["AssignmentStatus"] == "Submitted" or
-                      (response["_Meta"]["AssignmentStatus"] == "Accepted" and not response["_Meta"]["ShouldApprove"]))]
-
-    total_accepts = sum(1 for response in pending_assns if response["_Meta"]["ShouldApprove"])
-    total_rejects = sum(1 for response in pending_assns if not response["_Meta"]["ShouldApprove"])
+    pending_assns = [response for responses in outputs for response in responses if _is_pending(response)]
+    total_accepts = sum(1 for response in pending_assns if response["_Meta"]["ShouldApprove"] and response["_Meta"]["AssignmentStatus"] == "Submitted")
+    total_rejects = sum(1 for response in pending_assns if not response["_Meta"]["ShouldApprove"] and response["_Meta"]["AssignmentStatus"] == "Submitted")
     total_bonus = sum(response["_Meta"]["Bonus"] for response in pending_assns)
-    total_qual_updates = sum(1 for response in pending_assns if response["_Meta"]["QualificationUpdate"] != 0)
 
     # We're going to do something...
     print(f"""Summary:
 - Approvals:  {total_accepts} (${total_accepts * get_reward(exp.config):0.2f}),
 - Rejections: {total_rejects},
-- Bonuses: ${total_bonus},
-- Qual Updates: {total_qual_updates}""")
+- Bonuses: ${total_bonus}""")
 
-    if total_accepts or total_rejects or total_bonus or total_qual_updates:
+    if True or total_accepts or total_rejects or total_bonus:
         if force_user_input("Are you sure you want to continue? ", ["y", "n"]) == "n":
             sys.exit(1)
         pay_task(exp, use_prod=args.prod)

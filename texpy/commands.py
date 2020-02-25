@@ -6,6 +6,7 @@ import logging
 import sys
 from datetime import datetime
 from typing import List, cast
+from collections import defaultdict
 
 import yaml
 from jinja2 import Template
@@ -224,10 +225,9 @@ def check_task(exp: Experiment):
 
                 decisions = exp.helper.check_quality(input_, response, agg, metrics)
                 meta["QualityControlDecisions"] = decisions
-                meta["ShouldApprove"] = not decisions or all(
-                    decision.should_approve for decision in decisions)
-                meta["QualificationUpdate"] = sum(decision.qualification_update for decision in decisions)
-                meta["QualificationUpdated"] = False
+                meta["ShouldApprove"] = not decisions or all(decision.should_approve
+                        for decision in decisions)
+                meta["QualificationUpdated"] = None
 
                 meta["Bonus"] = exp.helper.bonus(input_, response["Answer"])
                 meta["BonusPaid"] = False
@@ -245,6 +245,16 @@ def pay_task(exp: Experiment, use_prod: bool = False):
     config = exp.config
     hits = exp.loadl('hits.jsonl')
     outputs = exp.loadl('outputs.jsonl')
+    metrics = exp.load("metrics.yaml")
+
+    # Get qualification updates aggregated by worker
+    qualification_updates: Dict[str, List[QualityControlDecisions]] = defaultdict(list)
+    for responses in outputs:
+        for response in responses:
+            meta = response["_Meta"]
+            if "ShouldApprove" not in meta or meta["AssignmentStatus"] != "Submitted":
+                continue
+            qualification_updates[meta["WorkerId"]].extend(meta["QualityControlDecisions"])
 
     conn = botox.get_client(use_prod)
 
@@ -258,8 +268,17 @@ def pay_task(exp: Experiment, use_prod: bool = False):
                 exp.storel("outputs.jsonl", outputs)
             if pay_bonuses(conn, response):
                 exp.storel("outputs.jsonl", outputs)
-            if update_quals(conn, config, response):
-                exp.storel("outputs.jsonl", outputs)
+
+    if not use_prod:
+        logger.info("Not updating qualifications on prod")
+        return
+
+    qual_id = config.get("QualificationTypeId")
+    for worker_id, decisions in tqdm(qualification_updates.items(), desc="Updating qualifications"):
+        score = botox.get_qualification(conn, qual_id, worker_id)
+        updated_score = exp.helper.update_worker_qualification(worker_id, metrics, decisions, score)
+        if updated_score is not None and updated_score != score:
+            botox.set_qualification(conn, qual_id, worker_id, updated_score)
 
 
 def pay_bonuses(conn, response: dict) -> bool:
@@ -269,7 +288,7 @@ def pay_bonuses(conn, response: dict) -> bool:
     """
     meta = response["_Meta"]
     bonus = float(meta.get("Bonus", 0.))
-    if "BonusPaid" not in response and bonus > 0:
+    if not meta.get("BonusPaid", False) and bonus > 0:
         logger.info(f"Paying {meta['WorkerId']} a bonus of {meta['Bonus']}")
         botox.pay_bonus(conn, meta["WorkerId"], meta["AssignmentId"],
                         amount=meta["Bonus"],
@@ -293,20 +312,22 @@ def update_quals(conn, props, response):
         logger.error("Skipping %s: You must have checked the response to update its qualification",
                      meta["AssignmentId"])
         return False
-    if "QualificationUpdated" in meta:
+    if "QualificationUpdated" in meta and meta["QualificationUpdated"]:
         return False
 
     qual_id = props.get("QualificationTypeId")
-    qual_update = meta.get("QualificationUpdate", 5 if meta["ShouldApprove"] else -5)
-    if qual_id and qual_update != 0:
-        logger.info(f"Updating qualification of {meta['WorkerId']} by {qual_update}")
-        # TODO: Get a reason.
-        botox.update_qualifications(conn, qual_id, response["_Meta"]["WorkerId"], qual_update,
+    decisions = props.get("QualityControlDecisions")
+
+    # Set QualificationValue to something
+    if any(decision.qualification_value is not None for decision in decisions):
+        value = max(decision.qualification_value for decision in decisions)
+        botox.set_qualification(conn, qual_id, meta["WorkerId"], value,
+                                reason=response.get("UpdateQualificationReason"))
+    elif any(decision.qualification_update is not None for decision in decisions):
+        update = sum(decision.qualification_update for decision in decisions)
+        botox.update_qualification(conn, qual_id, meta["WorkerId"], qual_update,
                                     reason=response.get("UpdateQualificationReason"))
-        response["QualificationUpdated"] = botox.DATETIME_FORMAT.format(datetime.now())
-        return True
-    else:
-        return False
+    response["QualificationUpdated"] = botox.DATETIME_FORMAT.format(datetime.now())
 
 
 def update_payments(exp: Experiment, conn, hit: dict, response: dict,

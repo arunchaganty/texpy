@@ -1,14 +1,15 @@
 """
 Quality control
 """
-from typing import List
+from typing import List, NamedTuple, Optional
 
 
-class QualityControlDecision():
+class QualityControlDecision:
     """
     @should_approve: should we approve this response or not?
     @short_reason: a short reason for update (used when short on space)
     @reason: a longer reason the explanation
+    @qualification_value: the exact value to set the qualification
     @qualification_update: how much the qualification should be updated by
     This CANNOT be a NamedTuple so that the json encoder will call the custom default()
     function. Otherwise it will just serialize this as a list.
@@ -16,18 +17,32 @@ class QualityControlDecision():
     should_approve: bool
     short_reason: str
     reason: str
-    qualification_update: int = 0
-    def __init__(
-            self,
-            should_approve: bool,
-            short_reason: str,
-            reason: str,
-            qualification_update: int = 0,
-            ):
+    qualification_value: Optional[int] = None
+    qualification_update: Optional[int] = None
+
+    def __init__(self, 
+                 should_approve: bool,
+                 short_reason: str,
+                 reason: str,
+                 qualification_value: Optional[int] = None,
+                 qualification_update: Optional[int] = None):
         self.should_approve = should_approve
         self.short_reason = short_reason
         self.reason = reason
+        self.qualification_value = qualification_value
         self.qualification_update = qualification_update
+
+    def __repr__(self):
+        return str(self.asdict())
+
+    def asdict(self):
+        return {
+            "should_approve": self.should_approve,
+            "short_reason": self.short_reason,
+            "reason": self.reason,
+            "qualification_value": self.qualification_value,
+            "qualification_update": self.qualification_update,
+            }
 
 
 def generate_explanation(decisions: List[QualityControlDecision], char_limit: int = 0) -> str:
