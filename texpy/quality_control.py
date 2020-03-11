@@ -6,13 +6,21 @@ from typing import List, NamedTuple, Optional
 
 class QualityControlDecision:
     """
-    @should_approve: should we approve this response or not?
-    @short_reason: a short reason for update (used when short on space)
-    @reason: a longer reason the explanation
-    @qualification_value: the exact value to set the qualification
-    @qualification_update: how much the qualification should be updated by
-    This CANNOT be a NamedTuple so that the json encoder will call the custom default()
-    function. Otherwise it will just serialize this as a list.
+    A data structure to captures required information to update
+    a workers qualification score.
+
+    Fields:
+        should_approve: should we approve this response or not?
+        short_reason: a short reason for update (used when short on space)
+        reason: a longer reason the explanation
+        qualification_value: the exact value to set the qualification
+        qualification_update: how much the qualification should be updated by
+
+    NOTE: We do not subclass `NamedTuple` here because the JSON encoder
+    serializes any subclasses of tuple as a list, and does not respect
+    the custom serializer defined in util.py
+    the custom default() function. Otherwise it will just serialize this
+    as a list.
     """
     should_approve: bool
     short_reason: str

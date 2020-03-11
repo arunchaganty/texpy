@@ -1,15 +1,32 @@
 """
-Handles the representation and definition of experiments.
+Experiment scaffolding (texpy.experiment)
+=========================================
+
+This module defines the `TaskHelper` base class that users can subclass
+to configure how the data for a particular experiment should be
+processed.
+
+.. todo::
+    Direct readers to a tutorial on how to define their own task helper.
+
+
+It additionally defines the `Experiment` and `ExperimentBatch` classes
+that define the experiment structure: an experiment contains one or more
+batches. The root experiment directory defines a task.py and task.yaml
+file that will be used by each batch. Each batch will first look for
+a task.py or task.yaml in its own directory before using the default in
+its parent directory, allowing you to define a specific task
+configuration for a particular batch.
 """
 
 import os
 import yaml
 import logging
 from importlib.util import spec_from_file_location, module_from_spec
-from typing import TextIO, List, cast, Union
+from typing import TextIO, List, cast, Optional
 from argparse import ArgumentError
 
-from .util import load_jsonl, save_jsonl
+from .util import load_jsonl, save_jsonl, SimpleObject, first
 from .quality_control import QualityControlDecision
 
 logger = logging.getLogger(__name__)
@@ -38,10 +55,13 @@ class TaskHelper:
         Aggregates multiple raw responses.
         See texpy.aggregation for many useful aggregation functions.
 
-        :param input_: The raw input provided to this task.
-        :param raw_responses: A list of raw_responses. Each raw_response is a dictionary with key-value pairs
-                              from the form's fields.
-        :returns A dictionary that aggregates the responses with the same keys.
+        Args:
+            input_: The raw input provided to this task.
+            raw_responses: A list of raw_responses. Each raw_response is
+                           a dictionary with key-value pairs from the
+                           form's fields.
+        Returns:
+            A dictionary that aggregates the responses with the same keys.
         """
         pass
 
@@ -49,24 +69,27 @@ class TaskHelper:
         """
         Create well-structured output from input and the aggregated response.
 
-        :param input_:  input given to the HIT
-        :param agg   :  return value of aggregate_responses
+        Args:
+            input_:  input given to the HIT
+            agg:  return value of aggregate_responses
 
-        :returns     :  A list of objects to be saved in the output data file
+        Returns:
+            A list of objects to be saved in the output data file
         """
         pass
 
     def compute_metrics(self, inputs: List[dict], outputs: List[List[dict]], agg: List[dict]) -> dict:
         """
-        Computes metrics on the input.
+        Computes metrics on the input. See `texpy.metrics` for lots of useful metrics.
 
-        :param inputs   : A list of inputs for the task.
-        :param outputs  : A list of outputs; each element contains a list of responses from workers.
-        :param agg      : The aggregated output.
+        Args:
+            inputs   : A list of inputs for the task.
+            outputs  : A list of outputs; each element contains a list of responses from workers.
+            agg      : The aggregated output.
 
-        See texpy.metrics for lots of useful metrics.
 
-        :returns a dictionary containing all the metrics we care about for this task.
+        Returns:
+            A dictionary containing all the metrics we care about for this task.
         """
         pass
     # endregion
@@ -75,16 +98,18 @@ class TaskHelper:
     def check_quality(self, input_: dict, response: dict, agg: dict, metrics: dict) -> List[QualityControlDecision]:
         """
         The quality checking routine.
-        :param input_  : input object given to the HIT
-        :param response: A worker's response (an element of outputs)
-        :param agg     : Aggregated response for this task (as returned by aggregate_responses())
-        :param metrics : Metrics computed over all the data (as returned by compute_metrics())
 
-        :returns       : a list of quality control decisions. Each decision
-                         weighs on accepting or rejecting the task and
-                         gives some feedback back to the worker. We reject
-                         if any of the returned decisions are to reject the
-                         HIT.
+        Args:
+            input_  : input object given to the HIT
+            response: A worker's response (an element of outputs)
+            agg     : Aggregated response for this task (as returned by aggregate_responses())
+            metrics : Metrics computed over all the data (as returned by compute_metrics())
+
+        Returns:
+            a list of quality control decisions. Each decision weighs on
+            accepting or rejecting the task and gives some feedback back
+            to the worker. We reject if any of the returned decisions
+            are to reject the HIT.
         """
         pass
 
@@ -96,16 +121,18 @@ class TaskHelper:
             ) -> int:
         """
         The quality checking routine.
-        :param input_  : input object given to the HIT
-        :param response: A worker's response (an element of outputs)
-        :param agg     : Aggregated response for this task (as returned by aggregate_responses())
-        :param metrics : Metrics computed over all the data (as returned by compute_metrics())
 
-        :returns       : a list of quality control decisions. Each decision
-                         weighs on accepting or rejecting the task and
-                         gives some feedback back to the worker. We reject
-                         if any of the returned decisions are to reject the
-                         HIT.
+        Args:
+            input_  : input object given to the HIT
+            response: A worker's response (an element of outputs)
+            agg     : Aggregated response for this task (as returned by aggregate_responses())
+            metrics : Metrics computed over all the data (as returned by compute_metrics())
+
+        Returns:
+            a list of quality control decisions. Each decision weighs on
+            accepting or rejecting the task and gives some feedback back
+            to the worker. We reject if any of the returned decisions
+            are to reject the HIT.
         """
         if any(decision.qualification_value is not None for decision in decisions):
             return max(decision.qualification_value or 0
@@ -114,7 +141,7 @@ class TaskHelper:
             return current_qualification_value + sum(decision.qualification_update or 0
                                                      for decision in decisions)
         else:
-            current_qualification_value
+            return current_qualification_value
 
     @property
     def rejection_email_format(self) -> str:
@@ -175,178 +202,210 @@ If you still feel treated unfairly, please contact us."""
 
 class Experiment(object):
     """
-    A tex.py experiment is a folder with the following objects:
-    # Task specification
-        - task.yaml         : specifies the AMT task paraemeters (title,
-                              reward, etc.)
-        - task.py           : specifies how to parse the task input and
-                              output.
-        - inputs.jsonl      : the input to run the experiment with.
-        - static/           : static resources used to render the task.
-            index.html      : the HTML that is rendered as an AMT task.
-            js/*            : other miscellaneous JavaScript files --
-                              these must be uploaded to some publicly
-                              accessible URL to work.
-            
+    Captures the root of an Experiment
 
-    # Generated files
-        - hits.jsonl        : metadata about HIT ids and the status of
-                              worker assignments. Each line corresponds
-                              to a single HIT which in turn corresponds
-                              to a single task in inputs.jsonl.
-        - outputs.jsonl     : raw output from workers. Again, each line
-                              corresponds to a single task specified by
-                              a line in inputs.jsonl. If a `task.py` is
-                              present, the output here corresponds to
-                              the output generated by task.py.
-        - data.jsonl        : aggregated output generated from
-                              outputs.jsonl.
-        - metrics.yaml      : metrics computed on the data as specified
-                              in task.py.
+    Each experiment defines some common configuration using the
+    ``task.yaml`` and ``task.py`` files. Most of the time, one interacts
+    with a specific *experiment batch*, which is captured in
+    `ExperimentBatch`.
+
+    This class defines a number of useful routines that allow users to
+    retrieve files relative to the experiment root, as well as to load
+    the `TaskHelper` associated with this experiment.
     """
 
-    def __init__(self, root: str, type_: str, idx: int):
+    def __init__(self, root: str):
         """
-        Creates a new experiment rooted at @root of type @type_ and index @idx
+        Construct an Experiment
+
+        Args:
+            root: The path to the root Experiment directory.
         """
         self.root = root
-        self.type = type_
-        self.idx = idx
 
-        self._config = None
-        self._helper = None
-        self._inputs = None
+        #: Lazy storage for `self.config`
+        self._config: Optional[SimpleObject] = None
+        #: Lazy storage for `self.helper`
+        self._helper: Optional[TaskHelper] = None
 
     def __repr__(self):
-        return "<Exp: {}>".format(self.path())
+        return f"<ExpBatch: {self.root}>"
+
+    def __str__(self):
+        return self.basename
 
     # region: io
+    def path(self, fname: Optional[str] = None) -> str:
+        """
+        Gets the path to a file relative to the experiment root.
+
+        Args:
+            fname: An optional filename to retrieve the path of. If none
+            is provided, we will return the path of the root.
+        Returns:
+            If `fname` is provided, the absolute path to `fname`, and
+            the absolute path to the experiment root otherwise.
+        """
+        return os.path.join(self.root, fname) if fname else self.root
+
     @property
     def mypath(self) -> str:
         """
-        Gets an filename as a property (helpful in format strings)
+        An alias for `self.path()` that can be used in format strings.
         """
         return self.path()
 
-    def exists(self, path=None) -> bool:
+    @property
+    def basename(self) -> str:
         """
-        Test if a path exists.
+        The basename of an Experiment directory. This is useful in
+        format strings.
+        """
+        return os.path.basename(os.path.realpath(self.root))
+
+    def exists(self, path: Optional[str] = None) -> bool:
+        """
+        Test if a path relative to the experiment root exists.
+
+        Args:
+            path: An optional path to test. If no path is provided, we
+            will test whether the experiment root exists.
+
+        Returns:
+            `True` iff `path` exists in the local filesystem.
         """
         return os.path.exists(self.path(path))
 
-    def ensure_exists(self, path=None):
+    def ensure_exists(self, path: Optional[str] = None) -> None:
         """
-        Ensure directories leading up to a path exist.
+        Ensure that a directory exists by creating it if it doesn't.
+
+        Args:
+            path: An optional path to test. If no path is provided, we
+            will use the experiment root.
         """
         path = self.path(path)
         if not os.path.exists(path):
             os.makedirs(path)
 
-    def relpath(self, fname=None) -> str:
-        """
-        Gets path relative to experiment root.
-        """
-        base_path = os.path.join(self.type, str(self.idx))
-        if fname:
-            return os.path.join(base_path, fname)
-        else:
-            return base_path
-
-    def path(self, fname=None) -> str:
-        """
-        Gets an filename from exp directory rooted at @self.root
-        """
-        return os.path.join(self.root, self.relpath(fname))
-
     def open(self, fname: str, *args, **kwargs) -> TextIO:
         """
         Opens a file relative to the experiment directory
+
+        Args:
+            fname: The (relative) path to the file to open.
+            *args: additional positional arguments to `open`.
+            *kwargs: additional keyword arguments to `open`.
+        Returns:
+            A file handle to `fname`.
         """
         return open(self.path(fname), *args, **kwargs)
 
-    def load(self, fname: str) -> dict:
+    def load(self, fname: str) -> SimpleObject:
+        """
+        Loads a configuration file, assumed to be YAML format.
+
+        Args:
+            fname: The (relative) path to the file to read.
+        Returns:
+            A dictionary parsed from `fname`.
+        """
         with self.open(fname) as f:
             return yaml.safe_load(f)
 
-    def loadl(self, fname: str) -> List[dict]:
+    def loadl(self, fname: str) -> List[SimpleObject]:
+        """
+        Loads a list of objects from a file assumed to be in JSONL
+        format.
+
+        Args:
+            fname: The (relative) path to the file to read.
+        Returns:
+            A list of dictionary objects parsed from `fname`.
+        """
         with self.open(fname) as f:
             return load_jsonl(f)
 
-    def store(self, fname: str, obj: dict):
-        with self.open(fname, "w") as f:
-            yaml.safe_dump(obj, f, indent=2, sort_keys=True)
+    def store(self, fname: str, obj: SimpleObject):
+        """
+        Save a configuration file in YAML format.
 
-    def storel(self, fname: str, objs: List[Union[list, dict]]):
+        Args:
+            fname: The (relative) path to the file to write to.
+            obj: The dictionary to write
+        """
+        with self.open(fname, "w") as f:
+            yaml.safe_dump(obj, f, indent=2, sort_keys=True) # type:ignore
+
+    def storel(self, fname: str, objs: List[SimpleObject]):
+        """
+        Save a list of objects to a file in JSONL format.
+
+        Args:
+            fname: The (relative) path to the file to write to.
+            objs: A list of objects to write
+        """
         with self.open(fname, "w") as f:
             save_jsonl(f, objs)
-
     # endregion
 
     # region: commands
-    @classmethod
-    def create(cls, root: str, type_: str) -> 'Experiment':
+    def new(self) -> 'ExperimentBatch':
         """
-        Create a new experiment of type type_ in root.
+        Create a new experiment batch.
+
+        The newly created experiment batch will have a batch index that
+        is larger than the existing batches.
         """
-        priors = cls.of_type(root, type_)
-        if priors:
-            exp = cls(root, type_, priors[-1].idx + 1)
+        batches = self.batches()
+        if batches:
+            ret = ExperimentBatch(self.root, max(batch.idx for batch in batches) + 1)
         else:
-            exp = cls(root, type_, 0)
-        exp.ensure_exists()
-        return exp
+            ret = ExperimentBatch(self.root, 0)
+        self.ensure_exists(str(ret.idx))
+        return ret
 
-    @classmethod
-    def from_path(cls, path, root=None) -> 'Experiment':
+    def batches(self) -> List['ExperimentBatch']:
         """
-        Create an experiment for a file path.
+        Get all experiment batches.
         """
-        if root is None:
-            root = os.path.dirname(os.path.dirname(path))
-            # + 1 for the '/'
-            path = path[len(root) + 1:]
-
-        type_ = os.path.dirname(path)
-        try:
-            idx = int(os.path.basename(path))
-        except ValueError:
-            raise ValueError(f"{path} is not a valid experiment directory")
-        return Experiment(root, type_, int(idx))
-
-    @classmethod
-    def of_type(cls, root, type_) -> List['Experiment']:
-        """
-        Get all experiments of certain type.
-        """
-        if not os.path.exists(os.path.join(root, type_)): return []
-
         ret = []
-        for dirname in os.listdir(os.path.join(root, type_)):
-            try:
-                exp = cls.from_path(os.path.join(root, type_, dirname))
-                if exp.type == type_:
-                    ret.append(exp)
-            except ValueError:
-                pass
+        for dirname in os.listdir(self.path()):
+            # We only care about directories that are numerals
+            if not os.path.isdir(self.path(dirname)) or not dirname.isdigit():
+                continue
+            batch = int(dirname)
+            ret.append(ExperimentBatch(self.root, batch))
         return sorted(ret, key=lambda e: e.idx)
 
+    def find(self, idx: Optional[int]) -> 'ExperimentBatch':
+        batches = self.batches()
+        if not batches:
+            raise IndexError("No batches currently exist. Please create a new one using `new`")
+        if idx:
+            batch = first(batch.idx == idx for batch in batches)
+            if batch is None:
+                raise IndexError(f"Could not find batch {idx}. Valid choices are: " +
+                        ' '.join(str(batch_.idx) for batch_ in batches))
+            return batch
+        else:
+            return batches[-1]
     # endregion
 
     # region: Getters for common experiment things.
     @property
-    def config(self) -> dict:
+    def config(self) -> SimpleObject:
         """
-        Get the task's configuration
+        Return the task configuration from `task.yaml`.
         """
         if self._config is None:
-            with self.open("task.yaml") as f:
-                self._config = yaml.safe_load(f)
+            self._config = self.load("task.yaml")
         return self._config
 
     @property
     def helper(self) -> TaskHelper:
         """
-        Loads the task helper
+        Returns the task helper module from `task.py`.
         """
         if self._helper is None:
             # This sequence of magic allows us to import a python module.
@@ -359,11 +418,72 @@ class Experiment(object):
             assert hasattr(module, 'Task')
             self._helper = cast(TaskHelper, module.Task())  # type: ignore
         return self._helper
+    # endregion
 
-    @property
-    def inputs(self) -> List[dict]:
+
+class ExperimentBatch(Experiment):
+    """
+    An experiment batch extends experiment with batch-specific utilities.
+
+    While `Experiment` defines common utilities across multiple
+    Experiment batches, e.g. the TaskHelper (task.py) or configuration
+    (task.yaml), the ExperimentBatch exposes files that are specific the
+    given batch like its inputs, outputs, etc.
+    """
+
+    def __init__(self, root: str, idx: int):
         """
-        Get the task's configuration
+        Constructs an ExperimentBatch
+
+        Args:
+            root: The path of the containing Experiment.
+            idx: The index of this particular batch.
+        """
+        super().__init__(root)
+        self.idx = idx
+
+        self._inputs: Optional[List[SimpleObject]] = None
+
+    def __repr__(self):
+        return f"<ExpBatch: {self.root}/{self.idx}>"
+
+    def __str__(self):
+        return f"{self.basename}/{self.idx}"
+
+    # region: io
+    def path(self, fname: Optional[str] = None) -> str:
+        """
+        Gets the path to a file relative to the experiment batch. If
+        this file doesn't exist in the current path, we will look for
+        the file in the root directory. If this too doesn't exist, we
+        will return the file relative to the experiment batch.
+
+        Args:
+            fname: An optional filename to retrieve the path of. If none
+            is provided, we will return the path of the batch.
+        Returns:
+            If `fname` is provided, the absolute path to `fname`, and
+            the absolute path to the experiment root otherwise.
+        """
+        local_path = os.path.join(self.root, str(self.idx))
+        if fname:
+            local_path = os.path.join(local_path, fname)
+
+        if os.path.exists(local_path):
+            return local_path
+
+        root_path = super().path(fname)
+        if os.path.exists(root_path):
+            return root_path
+
+        return local_path
+    # endregion
+
+    # region: Getters for common experiment things.
+    @property
+    def inputs(self) -> List[SimpleObject]:
+        """
+        Returns the list of inputs from `inputs.jsonl`.
         """
         if self._inputs is None:
             self._inputs = self.loadl("inputs.jsonl")
@@ -371,32 +491,4 @@ class Experiment(object):
     # endregion
 
 
-def find_experiment(root: str, suffix: str) -> Experiment:
-    """
-    Finds an experiment of type @type from @root
-
-    Examples:
-    SimpleApp -> SimpleApp/<latest>
-    SimpleApp/<n>
-
-    Returns an Experiment object
-    """
-    try:
-        exp = Experiment.from_path(os.path.join(root, suffix))
-        if not exp.exists():
-            raise ArgumentError(None, f"Experiment directory {exp.path()} does not exist")
-        logger.info(f"Using experiment at path {exp.path()}")
-        return exp
-    except ValueError:
-        pass
-
-    priors = Experiment.of_type(root, suffix)
-    if priors:
-        exp = priors[-1]
-        logger.info(f"Using experiment at path {exp.path()}")
-        return exp
-    else:
-        raise ArgumentError(None, "No experiments of type {} exist".format(suffix))
-
-
-__all__ = ["find_experiment", "Experiment", "TaskHelper"]
+__all__ = ["Experiment", "ExperimentBatch", "TaskHelper"]

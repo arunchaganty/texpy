@@ -46,6 +46,10 @@ templates_path = ['_templates']
 # This pattern also affects html_static_path and html_extra_path.
 exclude_patterns = ['_build', 'Thumbs.db', '.DS_Store']
 
+# This option will assume references like `MyClass` reference some
+# Python object.
+default_role = 'py:obj'
+
 
 # -- Options for HTML output -------------------------------------------------
 

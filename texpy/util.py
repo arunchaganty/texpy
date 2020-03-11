@@ -5,11 +5,16 @@ Utilities
 import heapq
 import json
 import logging
-from typing import Dict, TypeVar, Tuple, NamedTuple, List
+from typing import Dict, TypeVar, Tuple, NamedTuple, List, Union, Any, cast
 from .quality_control import QualityControlDecision
 
 
 T = TypeVar("T")
+
+# Ideally, we would use # the "SimpleObject" instead of "Any" in the
+# type definition below, but sadly, MyPy does not yet support recursive
+# types.
+SimpleObject = Union[bool, int, str, List[Any], Dict[str, Any]]
 
 
 logger = logging.getLogger(__name__)
@@ -25,25 +30,24 @@ class CustomJSONEncoder(json.JSONEncoder):
             return super().default(o)
 
 def custom_decoder_object_hook(o: object):
-    if "_type" not in o:
-        return o
-    else:
+    if isinstance(o, dict) and "_type" in o:
         if o["_type"] == "QualityControlDecision" and "_fields" in o:
             return QualityControlDecision(**o["_fields"])
+    return o
 
 def JsonFile(*args, **kwargs):
     def _ret(fname):
         return json.load(open(fname, *args, **kwargs), object_hook=custom_decoder_object_hook)
     return _ret
 
-def load_jsonl(fstream):
+def load_jsonl(fstream) -> List[SimpleObject]:
     if isinstance(fstream, str):
         with open(fstream) as fstream_:
             return load_jsonl(fstream_)
 
     return [json.loads(line, object_hook=custom_decoder_object_hook) for line in fstream]
 
-def save_jsonl(fstream, objs):
+def save_jsonl(fstream, objs: List[SimpleObject]):
     if isinstance(fstream, str):
         with open(fstream, "w") as fstream_:
             save_jsonl(fstream_, objs)
@@ -92,9 +96,9 @@ def sanitize(obj: T) -> T:
     with a key that starts with '_'.
     """
     if isinstance(obj, list):
-        return [sanitize(obj_) for obj_ in obj]
+        return cast(T, [sanitize(obj_) for obj_ in obj])
     elif isinstance(obj, dict):
-        return {key: sanitize(value) for key, value in obj.items() if not key.startswith("_")}
+        return cast(T, {key: sanitize(value) for key, value in obj.items() if not key.startswith("_")})
     else:
         return obj
 
@@ -109,7 +113,7 @@ class WeightedSpan(NamedTuple):
     """
     begin: int
     end: int
-    count: int = 1
+    weight: int = 1
 
 
 def collapse_spans(lst: List[Span]) -> List[WeightedSpan]:
@@ -139,27 +143,27 @@ def collapse_spans(lst: List[Span]) -> List[WeightedSpan]:
             # We are going to split last_span and span into two segments
             # each (with one overlapping span) pivoted at span.begin
             # First, we'll update last_span to its new boundary.
-            canonical_spans[-1] = WeightedSpan(last_span.begin, span.begin, last_span.count)
+            canonical_spans[-1] = WeightedSpan(last_span.begin, span.begin, last_span.weight)
             # Then, we'll break last_span by adding [span.begin,
             # last_span.end) to our queue
             heapq.heappush(all_spans, 
-                    WeightedSpan(span.begin, last_span.end, last_span.count + span.count))
+                    WeightedSpan(span.begin, last_span.end, last_span.weight + span.weight))
             # Finally, we'll break span by adding [last_span.end,
             # span.end) to our queue
             heapq.heappush(all_spans, 
-                    WeightedSpan(last_span.end, span.end, span.count))
+                    WeightedSpan(last_span.end, span.end, span.weight))
         elif last_span.end < span.end:
             # We are going to split span into two segments pivoted
             # around last_span.end, and increment counts appropriately
             canonical_spans[-1] = WeightedSpan(last_span.begin, last_span.end,
-                    last_span.count + span.count)
+                    last_span.weight + span.weight)
             # Create a new segment from [last_span.end, span.end)
             heapq.heappush(all_spans,
-                    WeightedSpan(last_span.end, span.end, span.count))
+                    WeightedSpan(last_span.end, span.end, span.weight))
         else:
             # We have a complete overlap and are just going to increment
             # counts
             canonical_spans[-1] = WeightedSpan(last_span.begin, last_span.end,
-                    last_span.count + span.count)
+                    last_span.weight + span.weight)
 
     return canonical_spans

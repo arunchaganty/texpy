@@ -13,7 +13,7 @@ from jinja2 import Template
 from tqdm import tqdm
 
 from . import botox
-from .experiment import Experiment
+from .experiment import ExperimentBatch
 from .util import force_user_input, sanitize
 
 logger = logging.getLogger(__name__)
@@ -50,7 +50,7 @@ def adjust_for_sandbox(config: dict) -> dict:
     return config
 
 
-def launch_task(exp: Experiment, use_prod: bool = False, **variables):
+def launch_task(exp: ExperimentBatch, use_prod: bool = False, **variables):
     """
     Launches tasks for an experiment.
     Roughly, we:
@@ -58,9 +58,11 @@ def launch_task(exp: Experiment, use_prod: bool = False, **variables):
         (b) get the estimated cost and confirm launch with the user.
         (c) actually upload the tasks to AMT.
 
-    @param exp: the experiment to run
-    @param use_prod: if true, we use the AMT prod to run our experiment.
-    @param variables: any additional variables to be used to render the HTML.
+
+    Args:
+       exp: the experiment to run
+       use_prod: if true, we use the AMT prod to run our experiment.
+       variables: any additional variables to be used to render the HTML.
     """
     inputs = exp.inputs
     config = exp.config
@@ -98,7 +100,7 @@ def launch_task(exp: Experiment, use_prod: bool = False, **variables):
 
     # Get a batch id for ourselves
     config["Reward"] = get_reward(config)
-    config['HITTypeId'] = botox.setup_hit_type(conn, config)
+    hit_type_id = botox.setup_hit_type(conn, config)
     if use_prod:
         exp.store("task.yaml", config)
 
@@ -106,14 +108,14 @@ def launch_task(exp: Experiment, use_prod: bool = False, **variables):
     hits, outputs = [], []
     try:
         for html in tqdm(htmls, desc="Launching hits"):
-            hits.append(botox.launch_hit(conn, config, html))
+            hits.append(botox.launch_hit(conn, hit_type_id, config, html))
             outputs.append([])  # This will be populated as the task proceeds.
     finally:
         exp.storel('hits.jsonl', hits)
         exp.storel('outputs.jsonl', outputs)
 
 
-def sync_task(exp: Experiment, use_prod: bool = False, force_update: bool = False):
+def sync_task(exp: ExperimentBatch, use_prod: bool = False, force_update: bool = False):
     """
     Syncs task for an experiment.
     Roughly, we:
@@ -150,7 +152,7 @@ def _with_meta(raw: dict, processed: dict) -> dict:
     return processed
 
 
-def aggregate_task(exp: Experiment) -> List[dict]:
+def aggregate_task(exp: ExperimentBatch) -> List[dict]:
     inputs = exp.loadl('inputs.jsonl')
     outputs = exp.loadl("outputs.jsonl")
 
@@ -161,7 +163,7 @@ def aggregate_task(exp: Experiment) -> List[dict]:
     return ret
 
 
-def export_task(exp: Experiment) -> List[dict]:
+def export_task(exp: ExperimentBatch) -> List[dict]:
     """
     Exports data from the experiment.
     :param exp:
@@ -178,7 +180,7 @@ def export_task(exp: Experiment) -> List[dict]:
     return ret
 
 
-def compute_metrics(exp: Experiment) -> dict:
+def compute_metrics(exp: ExperimentBatch) -> dict:
     inputs = exp.loadl('inputs.jsonl')
     outputs = cast(List[List[dict]], exp.loadl('outputs.jsonl'))
     agg = exp.loadl("agg.jsonl")
@@ -188,7 +190,7 @@ def compute_metrics(exp: Experiment) -> dict:
     return ret
 
 
-def check_task(exp: Experiment):
+def check_task(exp: ExperimentBatch):
     """
     Does quality checking for task by calling tasks helper check_quality.
     At the end of this routine, every task response will have its _Meta field updated to include:
@@ -235,7 +237,7 @@ def check_task(exp: Experiment):
         exp.storel("outputs.jsonl", outputs)
 
 
-def pay_task(exp: Experiment, use_prod: bool = False):
+def pay_task(exp: ExperimentBatch, use_prod: bool = False):
     """
     Pay all the hits in this task.
 
@@ -330,7 +332,7 @@ def update_quals(conn, props, response):
     response["QualificationUpdated"] = botox.DATETIME_FORMAT.format(datetime.now())
 
 
-def update_payments(exp: Experiment, conn, hit: dict, response: dict,
+def update_payments(exp: ExperimentBatch, conn, hit: dict, response: dict,
                     redo_rejected_hits=True, with_confirmation=True) -> bool:
     """
     Updates payments for a HIT.

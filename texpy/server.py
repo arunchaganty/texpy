@@ -17,7 +17,7 @@ from bottle import Bottle, static_file
 from jinja2 import Template
 from jinja2.filters import htmlsafe_json_dumps
 
-from .experiment import Experiment
+from .experiment import ExperimentBatch
 from .util import sanitize
 from .commands import get_reward
 
@@ -38,8 +38,8 @@ class ExperimentViewer:
     - /render/?task=i[&assignment=j]: renders a particular task (i).
     """
 
-    def __init__(self, exp: Experiment, **variables):
-        self.exp: Experiment = exp
+    def __init__(self, exp: ExperimentBatch, **variables):
+        self.exp: ExperimentBatch = exp
         self.config: dict = exp.config
         self.config["Reward"] = get_reward(self.config)
         self.inputs: List[dict] = exp.loadl("inputs.jsonl")
@@ -144,7 +144,7 @@ class ExperimentViewer:
             })
 
 
-def serve_viewer(exp: Experiment, port: int = 8080, **variables):
+def serve_viewer(exp: ExperimentBatch, port: int = 8080, **variables):
     # Special casing SERVER_URL because we need it to serve resources
     variables["SERVER_URL"] = f"http://localhost:{port}"
 

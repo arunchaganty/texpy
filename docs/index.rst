@@ -12,6 +12,7 @@ Welcome to CrowdPy's documentation!
 
    texpy.aggregators
    texpy.metrics
+   texpy.experiment
 
 .. automodule:: texpy
 

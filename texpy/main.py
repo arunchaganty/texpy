@@ -2,6 +2,27 @@
 # -*- coding: utf-8 -*-
 """
 Turk experiment helper.
+
+This utility helps you manage the lifecycle of crowd-work tasks on
+Amazon Mechanical Turk (AMT). Here's a simple diagram of a typical
+lifecycle:
+
+
+  init†
+   ↓
+  new ---> view ---> launch --> sync --> check --> pay --> export
+   |   └- new -u ┘                                  |  
+   └----------------- (new batch)-------------------┴----> clear‡
+
+
+†: You only need to run `init` the first time you start an experiment:
+   it will create the appropriate `task.py`, `task.yaml`, as well as a
+   `config.yaml` file for custom hooks.
+‡: Running clear will nuke the data for your experiment from AWS's
+   servers: make sure you either don't want that data or that you have a
+   secure backup before running this command.
+
+You can get more help for each command below.
 """
 import logging
 import os
@@ -9,8 +30,8 @@ import shutil
 import sys
 import time
 from pprint import pprint
-from subprocess import check_output
-from typing import List
+from subprocess import check_output, CalledProcessError
+from typing import List, cast
 
 import yaml
 from tqdm import tqdm, trange
@@ -18,7 +39,7 @@ from tqdm import tqdm, trange
 from . import botox
 from .commands import launch_task, sync_task, check_task, pay_task, aggregate_task, compute_metrics, get_reward, \
     export_task
-from .experiment import Experiment, find_experiment
+from .experiment import Experiment
 from .server import serve_viewer
 from .util import force_user_input, first
 from .quality_control import QualityControlDecision
@@ -51,28 +72,47 @@ def _get_variables(exp:Experiment, config: dict) -> dict:
 
 def do_init(args):
     """
-    initialize a new experiment run.
-    This command will create (or update) an experiment directory.
+    Initializes a new experiment directory with template task.yaml and
+    task.py files.
+    """
+    template_files = ["task.py", "task.yaml"]
+    exp = Experiment(args.root)
+
+    for fname in template_files:
+        if exp.exists(fname):
+            logger.info("Skipping creating task.py because it already "
+                    "exists. Please delete or rename it if you would like to "
+                    "restore the template version")
+        else:
+            _run(f"cp {TEMPLATE_DIR}/{fname} {args.root}")
+    logger.info("Ready to start running experiments! Run `new` to create a new batch.")
+
+
+def do_new(args):
+    """
+    Creates a new experiment batch or updates an existing one.
     """
     if args.update:
-        exp = find_experiment(args.root, args.exp)
+        exp = Experiment(args.root).find(args.idx)
         logger.info(f"Updating existing {exp}")
     else:
-        exp = Experiment.create(args.root, args.exp)
+        assert args.idx is None, "You cannot provide an index unless you wish to update the experiment"
+        batches = Experiment(args.root).batches()
+
+        exp = Experiment(args.root).new()
         logger.info(f"Creating a new experiment {exp}")
-        priors = Experiment.of_type(args.root, args.exp)
-        # We're creating a new experiment so must copy over templates
-        # either from scratch or from the last experiment.
-        tmpl = TEMPLATE_DIR
-        _run(f"cp {tmpl}/task.py {tmpl}/task.yaml {tmpl}/inputs.jsonl {exp.path()}")
-        if len(priors) > 1:
-            tmpl = priors[-2].path()
-            # noinspection PyBroadException
+
+        if batches:
+            batch = batches[-1]
             try:
-                _run(f"cp {tmpl}/task.py {tmpl}/task.yaml {tmpl}/inputs.jsonl {exp.path()}")
-            except Exception:
-                # Something went wrong, copy over from TEMPLATE_DIR
-                logger.warning("Had an error copying data from previous experiment")
+                _run(f"cp {batch.path('inputs.jsonl')} {exp.path()}")
+            except CalledProcessError as e:
+                logger.exception("Could not copy file from previous "
+                        "directory. We will use the template version "
+                        "instead")
+                _run(f"cp {TEMPLATE_DIR}/inputs.jsonl {exp.path()}")
+        else:
+            _run(f"cp {TEMPLATE_DIR}/inputs.jsonl {exp.path()}")
 
         _run_hook(args.config["hooks"].get("init/pre", []), exp=exp, **_get_variables(exp, args.config))
     _run_hook(args.config["hooks"].get("init/post", []), exp=exp, **_get_variables(exp, args.config))
@@ -82,13 +122,13 @@ def do_view(args):
     """
     View an experiment.
     """
-    exp = find_experiment(args.root, args.exp)
+    exp = Experiment(args.root).find(args.idx)
     serve_viewer(exp, args.port, **_get_variables(exp, args.config))
 
 
 def do_launch(args):
     # 0. Find experiment dir.
-    exp = find_experiment(args.root, args.exp)
+    exp = Experiment(args.root).find(args.idx)
 
     # Make sure we aren't overwriting a hits.jsonl because without
     # HITIds we won't be able to pay or clear old tasks.
@@ -105,7 +145,7 @@ def do_launch(args):
 
 
 def _task_summary(exp: Experiment) -> str:
-    hits = exp.loadl('hits.jsonl')
+    hits: List[dict] = cast(List[dict], exp.loadl('hits.jsonl'))
 
     pending = sum(hit['NumberOfAssignmentsPending'] for hit in hits)
     total = sum(hit['MaxAssignments'] for hit in hits)
@@ -116,7 +156,7 @@ def _task_summary(exp: Experiment) -> str:
 
 def do_sync(args):
     # 0. Find experiment dir.
-    exp = find_experiment(args.root, args.exp)
+    exp = Experiment(args.root).find(args.idx)
 
     # 1. In a loop, based on input.
     while True:
@@ -159,7 +199,7 @@ def do_check(args):
     :param args:
     :return:
     """
-    exp = find_experiment(args.root, args.exp)
+    exp = Experiment(args.root).find(args.idx)
 
     aggregate_task(exp)
     metrics = compute_metrics(exp)
@@ -222,7 +262,7 @@ def do_check(args):
 
 def do_pay(args):
     # 0. Find experiment dir.
-    exp = find_experiment(args.root, args.exp)
+    exp = Experiment(args.root).find(args.idx)
 
     def _is_pending(response):
         if "ShouldApprove" not in response["_Meta"]:
@@ -258,7 +298,7 @@ def do_pay(args):
 
 def do_stop(args):
     # 0. Find experiment dir.
-    exp = find_experiment(args.root, args.exp)
+    exp = Experiment(args.root).find(args.idx)
     hits = exp.loadl('hits.jsonl')
 
     conn = botox.get_client(args.prod)
@@ -269,7 +309,7 @@ def do_stop(args):
 
 def do_clear(args):
     # 0. Find experiment dir.
-    exp = find_experiment(args.root, args.exp)
+    exp = Experiment(args.root).find(args.idx)
     hits = exp.loadl('hits.jsonl')
 
     conn = botox.get_client(args.prod)
@@ -294,18 +334,18 @@ def do_clear(args):
 
 
 def do_export(args):
-    exp = find_experiment(args.root, args.exp)
+    exp = Experiment(args.root).find(args.idx)
     export_task(exp)
 
 
 def do_metrics(args):
-    exp = find_experiment(args.root, args.exp)
+    exp = Experiment(args.root).find(args.idx)
     metrics = compute_metrics(exp)
     yaml.safe_dump(metrics, sys.stdout)
 
 
 def do_create_qual(args):
-    exp = find_experiment(args.root, args.exp)
+    exp = Experiment(args.root).find(args.idx)
 
     if exp.config.get('QualificationTypeId'):
         logger.fatal(f"""Already have a qualification type ({exp.config['QualificationTypeId']}) for this
@@ -331,7 +371,7 @@ def do_create_qual(args):
 
 # region: manual intervention
 # def do_set_qual(args):
-#     exp = find_experiment(args.root, args.exp)
+#     exp = Experiment(args.root).find(args.idx)
 #     props = exp.load('hit_properties.json')
 #
 #     conn = botox.get_client(args)
@@ -339,7 +379,7 @@ def do_create_qual(args):
 #
 #
 # def do_query(args):
-#     exp = find_experiment(args.root, args.exp)
+#     exp = Experiment(args.root).find(args.idx)
 #     props = exp.load('hit_properties.json')
 #     inputs = exp.loadl('inputs.jsonl')
 #     hits = exp.loadl('hits.jsonl')
@@ -383,7 +423,7 @@ def do_create_qual(args):
 #
 #
 # def do_approve(args):
-#     exp = find_experiment(args.root, args.exp)
+#     exp = Experiment(args.root).find(args.idx)
 #     props = exp.load('hit_properties.json')
 #     inputs = exp.loadl('inputs.jsonl')
 #     hits = exp.loadl('hits.jsonl')
@@ -410,28 +450,32 @@ def main():
     logging.basicConfig(level=logging.INFO)
 
     import argparse
-    parser = argparse.ArgumentParser(description='tex.py: a tool to manage Amazon Mechanical Turk experiments')
-    parser.add_argument('-C', '--config', default='config.yaml', type=str, help="Global configuration file.")
-    parser.add_argument('-R', '--root', default='experiments/', help="Root directory where experiments are stored.")
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument('-C', '--config', type=str, required=False, default=None, help="Meta configuration file.")
+    parser.add_argument('-R', '--root', default='.', help="Root directory where experiments are stored.")
     parser.add_argument('-P', '--prod', action='store_true', help="Use production AMT?")
     parser.set_defaults(func=None)
 
     subparsers = parser.add_subparsers()
-    command_parser = subparsers.add_parser('init', help='Initialize a new experiment of a particular type')
-    command_parser.add_argument('-u', '--update', action='store_true', default=False,
-                                help="Update instead of creating a new version?")
-    command_parser.add_argument('exp', type=str, help="Type of experiment to initialize")
+    command_parser = subparsers.add_parser('init', help=do_init.__doc__)
     command_parser.set_defaults(func=do_init)
+
+    command_parser = subparsers.add_parser('new', help=do_new.__doc__)
+    command_parser.add_argument('-u', '--update', action='store_true', default=False,
+                                help="If set, we will only run the update hook for experiment "
+                                "instead of creating one from scratch.")
+    command_parser.add_argument('idx', type=int, nargs="?", help="If provided, the batch index to use")
+    command_parser.set_defaults(func=do_new)
 
     command_parser = subparsers.add_parser('view', help='View an experiment')
     command_parser.add_argument('-p', '--port', default=8080, type=int, help="Which port to serve on")
-    command_parser.add_argument('exp', type=str, help="Type of experiment to initialize")
+    command_parser.add_argument('idx', type=int, nargs="?", help="If provided, the batch index to use")
     command_parser.set_defaults(func=do_view)
 
     command_parser = subparsers.add_parser('launch', help='launch an experiment onto the server and turk')
     command_parser.add_argument('-F', '--force', action='store_true', default=False,
                                 help="Force changes in reward and estimated time to match properties")
-    command_parser.add_argument('exp', type=str, help="Type of experiment to initialize")
+    command_parser.add_argument('idx', type=int, nargs="?", help="If provided, the batch index to use")
     command_parser.set_defaults(func=do_launch)
 
     command_parser = subparsers.add_parser('sync', help='Sync local data with AMT server.')
@@ -440,38 +484,38 @@ def main():
     command_parser.add_argument('-B', '--blocking', action='store_true', default=False, help="Runs sync in a loop")
     command_parser.add_argument('-T', '--wait-time', type=int, default=180, help="Runs sync in a loop")
     command_parser.add_argument('-F', '--force', action='store_true', default=False, help="Force a thorough update")
-    command_parser.add_argument('exp', type=str, help="Type of experiment to initialize")
+    command_parser.add_argument('idx', type=int, nargs="?", help="If provided, the batch index to use")
     command_parser.set_defaults(func=do_sync)
 
     command_parser = subparsers.add_parser('check', help='Do quality control and assign accept statuses to HITs')
-    command_parser.add_argument('exp', type=str, help="Type of experiment to initialize")
+    command_parser.add_argument('idx', type=int, nargs="?", help="If provided, the batch index to use")
     command_parser.add_argument('-f', '--fake', action='store_true', default=False,
                                 help="Don't actually update any files")
     command_parser.set_defaults(func=do_check)
 
     command_parser = subparsers.add_parser('pay', help='Do quality control and assign accept statuses to HITs')
-    command_parser.add_argument('exp', type=str, help="Type of experiment to initialize")
+    command_parser.add_argument('idx', type=int, nargs="?", help="If provided, the batch index to use")
     command_parser.add_argument('-F', '--force-reversal', action='store_true', help="Force the reversal")
     command_parser.set_defaults(func=do_pay)
 
     command_parser = subparsers.add_parser('metrics', help='Compute stats on experiment')
-    command_parser.add_argument('exp', type=str, help="Type of experiment to initialize")
+    command_parser.add_argument('idx', type=int, nargs="?", help="If provided, the batch index to use")
     command_parser.set_defaults(func=do_metrics)
 
     command_parser = subparsers.add_parser('export', help='Export data')
-    command_parser.add_argument('exp', type=str, help="Type of experiment to initialize")
+    command_parser.add_argument('idx', type=int, nargs="?", help="If provided, the batch index to use")
     command_parser.set_defaults(func=do_export)
 
     command_parser = subparsers.add_parser('stop', help='Stop on going task.')
-    command_parser.add_argument('exp', type=str, help="Type of experiment to initialize")
+    command_parser.add_argument('idx', type=int, nargs="?", help="If provided, the batch index to use")
     command_parser.set_defaults(func=do_stop)
 
     command_parser = subparsers.add_parser('clear', help='Deletes HITs from AMT')
-    command_parser.add_argument('exp', type=str, help="Type of experiment to initialize")
+    command_parser.add_argument('idx', type=int, nargs="?", help="If provided, the batch index to use")
     command_parser.set_defaults(func=do_clear)
 
     command_parser = subparsers.add_parser('create-qual', help='Handle a qualification')
-    command_parser.add_argument('exp', type=str, help="Type of experiment to initialize")
+    command_parser.add_argument('idx', type=int, nargs="?", help="If provided, the batch index to use")
     command_parser.add_argument('-g', '--auto-granted', default=True, type=bool,
                                 help="Should auto-grant? (default True)")
     command_parser.add_argument('-v', '--auto-granted-value', type=int, default=100, help="Auto-granted value")
@@ -480,23 +524,23 @@ def main():
 
     # region: manual commands
     # command_parser = subparsers.add_parser('set-qual', help='Handle a qualification')
-    # command_parser.add_argument('exp', type=str, help="Type of experiment to initialize")
     # command_parser.add_argument('-W', '--worker_id', type=str, help="Worker to update quals for")
     # command_parser.add_argument('-V', '--value', type=int, default=100, help="Auto-granted value")
+    # command_parser.add_argument('idx', type=int, nargs="?", help="If provided, the batch index to use")
     # command_parser.set_defaults(func=do_set_qual)
 
     # command_parser = subparsers.add_parser('query', help='Converts an old directory into a new one.')
-    # command_parser.add_argument('exp', type=str, help="Type of experiment to initialize")
     # command_parser.add_argument('-W', '--worker-id', type=str, help="Worker id to query")
     # command_parser.add_argument('-H', '--hit-id', type=str, help="HIT id to query")
     # command_parser.add_argument('-A', '--assn-id', type=str, help="Assignment id to query")
     # command_parser.add_argument('-F', '--filter', type=str, help="Expression to filter on")
     # command_parser.add_argument('-E', '--extract', type=str, help="Expression to extract")
+    # command_parser.add_argument('idx', type=int, nargs="?", help="If provided, the batch index to use")
     # command_parser.set_defaults(func=do_query)
 
     # command_parser = subparsers.add_parser('approve', help='Quickly approve an assignment')
-    # command_parser.add_argument('exp', type=str, help="Type of experiment to initialize")
     # command_parser.add_argument('-A', '--assignment_id', type=str, help="Assignment to approve")
+    # command_parser.add_argument('idx', type=int, nargs="?", help="If provided, the batch index to use")
     # command_parser.set_defaults(func=do_approve)
 
     # command_parser = subparsers.add_parser('message', help='Contact a worker')
@@ -512,6 +556,21 @@ def main():
         sys.exit(1)
     else:
         # Load the configuration file.
+        # We will try to look for the configuration file in the
+        # following locations (in order):
+        #   - the path specified by args.config
+        #   - ./config.yaml
+        #   - ../config.yaml (having a directory of experiments is a
+        #   fairly common pattern)
+        # If a configuration does not exist in any of these locations,
+        # we will copy a template configuration over.
+        if args.config is not None:
+            assert os.path.exists(args.config), f"The specified meta-configuration at {args.config} does not exist."
+        elif not os.path.exists("./config.yaml") and os.path.exists("../config.yaml"):
+            args.config = "../config.yaml"
+        else:
+            args.config = "config.yaml"
+
         if not os.path.exists(args.config):
             logger.info(f"Copying over a default configuration YAML to {args.config}")
             shutil.copy(os.path.join(TEMPLATE_DIR, 'config.yaml'), args.config)

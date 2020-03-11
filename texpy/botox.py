@@ -172,14 +172,25 @@ def setup_hit_type(conn, props: dict) -> str:
     return response['HITTypeId']
 
 
-def launch_hit(conn, config: dict, html: str) -> dict:
+def launch_hit(conn, hit_type_id: str, config: dict, html: str) -> dict:
     """
-    Launch a HIT using the configuration in @props with @html.
+    Launch a HIT using the configuration in `config` with contents `html`.
+
+    Args:
+        conn: A MTurk client connection
+        hit_type_id: The HITTypeId returned by `setup_hit_type`. This ID
+                     defines all the shared properties of tasks in this
+                     HIT like their reward, and approval policy.
+        config: The task configuration from ``task.yaml``.
+        html: The HTML that will be rendered as part of this task.
+
+    Returns:
+        A dictionary describing the HIT.
     """
     assert 'HITTypeId' in config, "Unable to load a batch without `HITTypeId` in config"
 
     response = conn.create_hit_with_hit_type(
-        HITTypeId=config['HITTypeId'],
+        HITTypeId=hit_type_id,
         MaxAssignments=config['MaxAssignments'],
         LifetimeInSeconds=config.get("LifetimeInSeconds", 60 * 60 * 24 * 10),  # 10 days is default.
         Question=HTMLQuestion(html, config.get("FrameHeight", 1000)).get_as_xml(),
