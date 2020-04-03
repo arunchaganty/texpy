@@ -253,7 +253,7 @@ def test_pearson_rho():
     assert np.allclose(rhos['C'], 0.947, 5e-3)
 
 
-def simple_agreement(task_worker_values: Dict[T, Dict[W, Any]],
+def pairwise_agreement(task_worker_values: Dict[T, Dict[W, Any]],
                      mode: str = "nominal", n_values: Optional[int] = None) -> float:
     """
     Computes simple agreement on @task_worker_values
@@ -291,30 +291,34 @@ def simple_agreement(task_worker_values: Dict[T, Dict[W, Any]],
     return ret
 
 
-def test_simple_agreement_nominal():
+def test_pairwise_agreement_nominal():
     # Example from http://en.wikipedia.org/wiki/Krippendorff's_Alpha
     data = invert_dict({
         'A': {6: 2, 7: 3, 8: 0, 9: 1, 10: 0, 11: 0, 12: 2, 13: 2, 15: 2, },
         'B': {1: 0, 3: 1, 4: 0, 5: 2, 6: 2, 7: 3, 8: 2, },
         'C': {3: 1, 4: 0, 5: 2, 6: 3, 7: 3, 9: 1, 10: 0, 11: 0, 12: 2, 13: 2, 15: 3, },
     })
-    agreement = simple_agreement(data, "nominal")
+    agreement = pairwise_agreement(data, "nominal")
     assert np.allclose(agreement, 0.75, 5e-3)
 
 
-def test_simple_agreement_ordinal():
+def test_pairwise_agreement_ordinal():
     # Example from http://en.wikipedia.org/wiki/Krippendorff's_Alpha
     data = invert_dict({
         'A': {6: 2, 7: 3, 8: 0, 9: 1, 10: 0, 11: 0, 12: 2, 13: 2, 15: 2, },
         'B': {1: 0, 3: 1, 4: 0, 5: 2, 6: 2, 7: 3, 8: 2, },
         'C': {3: 1, 4: 0, 5: 2, 6: 3, 7: 3, 9: 1, 10: 0, 11: 0, 12: 2, 13: 2, 15: 3, },
     })
-    agreement = simple_agreement(data, "ordinal")
+    agreement = pairwise_agreement(data, "ordinal")
     assert np.allclose(agreement, 0.75, 5e-3)
+
+
+# Alias for backward compatibility.
+simple_agreement = pairwise_agreement
 
 
 def mean_agreement(task_worker_values: Dict[T, Dict[W, Any]], agg: Dict[T, Any],
-                   mode: str = "nominal", n_values: Optional[int] = None) -> Dict[W, List[float]]:
+                   mode: str = "nominal", n_values: Optional[int] = None) -> float:
     """
     Computes simple agreement on @task_worker_values
     :param task_worker_values:
@@ -326,7 +330,7 @@ def mean_agreement(task_worker_values: Dict[T, Dict[W, Any]], agg: Dict[T, Any],
     # Infer values
     if mode == "nominal":
         fn = _nominal_agreement
-    if mode == "span":
+    elif mode == "span":
         fn = _span_agreement
     elif mode == "ordinal":
         assert n_values is not None, "Must provide n_values if mode is 'ordinal'"
@@ -335,17 +339,18 @@ def mean_agreement(task_worker_values: Dict[T, Dict[W, Any]], agg: Dict[T, Any],
         raise ValueError("Invalid mode {}".format(mode))
 
     # rolling average
-    ret = defaultdict(list)
+    ret, n = 0., 0
     for task, worker_values in task_worker_values.items():
-        agg_value = agg[task]
         # No agreement with just a single value
         if len(worker_values) < 2:
             continue
 
+        agg_value = agg[task]
         for worker, value in worker_values.items():
             # compute probability
-            ret[worker].append(fn(agg_value, value))
-    return dict(ret)
+            ret += (fn(agg_value, value) - ret)/(n+1)
+            n += 1
+    return ret
 
 
 def test_mean_agreement_nominal():
@@ -367,6 +372,63 @@ def test_mean_agreement_ordinal():
         'C': {3: 1, 4: 0, 5: 2, 6: 3, 7: 3, 9: 1, 10: 0, 11: 0, 12: 2, 13: 2, 15: 3, },
     })
     agreement = mean_agreement(data, {}, "ordinal")
+    assert np.allclose(agreement, 0.75, 5e-3)
+
+
+def mean_agreement_per_worker(task_worker_values: Dict[T, Dict[W, Any]], agg: Dict[T, Any],
+                   mode: str = "nominal", n_values: Optional[int] = None) -> Dict[W, List[float]]:
+    """
+    Computes simple agreement on @task_worker_values
+    :param task_worker_values:
+    :param agg: aggregated values
+    :param mode: can be nominal or ordinal. nominal checks for exact equality, ordinal checks for mean.
+    :param n_values:
+    :return:
+    """
+    # Infer values
+    if mode == "nominal":
+        fn = _nominal_agreement
+    elif mode == "span":
+        fn = _span_agreement
+    elif mode == "ordinal":
+        assert n_values is not None, "Must provide n_values if mode is 'ordinal'"
+        fn = lambda a, b: _ordinal_agreement(a, b, n_values)
+    else:
+        raise ValueError("Invalid mode {}".format(mode))
+
+    # rolling average
+    ret = defaultdict(list)
+    for task, worker_values in task_worker_values.items():
+        # No agreement with just a single value
+        if len(worker_values) < 2:
+            continue
+
+        agg_value = agg[task]
+        for worker, value in worker_values.items():
+            # compute probability
+            ret[worker].append(fn(agg_value, value))
+    return dict(ret)
+
+
+def test_mean_agreement_per_worker_nominal():
+    # Example from http://en.wikipedia.org/wiki/Krippendorff's_Alpha
+    data = invert_dict({
+        'A': {6: 2, 7: 3, 8: 0, 9: 1, 10: 0, 11: 0, 12: 2, 13: 2, 15: 2, },
+        'B': {1: 0, 3: 1, 4: 0, 5: 2, 6: 2, 7: 3, 8: 2, },
+        'C': {3: 1, 4: 0, 5: 2, 6: 3, 7: 3, 9: 1, 10: 0, 11: 0, 12: 2, 13: 2, 15: 3, },
+    })
+    agreement = mean_agreement_per_worker(data, {}, "nominal")
+    assert np.allclose(agreement, 0.75, 5e-3)
+
+
+def test_mean_agreement_per_worker_ordinal():
+    # Example from http://en.wikipedia.org/wiki/Krippendorff's_Alpha
+    data = invert_dict({
+        'A': {6: 2, 7: 3, 8: 0, 9: 1, 10: 0, 11: 0, 12: 2, 13: 2, 15: 2, },
+        'B': {1: 0, 3: 1, 4: 0, 5: 2, 6: 2, 7: 3, 8: 2, },
+        'C': {3: 1, 4: 0, 5: 2, 6: 3, 7: 3, 9: 1, 10: 0, 11: 0, 12: 2, 13: 2, 15: 3, },
+    })
+    agreement = mean_agreement_per_worker(data, {}, "ordinal")
     assert np.allclose(agreement, 0.75, 5e-3)
 
 
