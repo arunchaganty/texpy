@@ -21,9 +21,11 @@ def get_client(use_prod: bool = False):
     Get a AMT client client.
     """
     if use_prod:
-        return boto3.client('mturk')
+        # NOTE: MTurk is curretly only offered in US-EAST-1, so we'll
+        # set the region here.
+        return boto3.client('mturk', region_name="us-east-1")
     else:
-        return boto3.client('mturk', endpoint_url='https://mturk-requester-sandbox.us-east-1.amazonaws.com')
+        return boto3.client('mturk', region_name="us-east-1", endpoint_url='https://mturk-requester-sandbox.us-east-1.amazonaws.com')
 
 
 def get_account_balance(conn) -> float:
