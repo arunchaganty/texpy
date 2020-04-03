@@ -382,8 +382,8 @@ class Experiment(object):
         batches = self.batches()
         if not batches:
             raise IndexError("No batches currently exist. Please create a new one using `new`")
-        if idx:
-            batch = first(batch.idx == idx for batch in batches)
+        if idx is not None:
+            batch = first(batch for batch in batches if batch.idx == idx)
             if batch is None:
                 raise IndexError(f"Could not find batch {idx}. Valid choices are: " +
                         ' '.join(str(batch_.idx) for batch_ in batches))
