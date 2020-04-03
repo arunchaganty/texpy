@@ -19,7 +19,7 @@ from jinja2.filters import htmlsafe_json_dumps
 
 from .experiment import ExperimentBatch
 from .util import sanitize
-from .commands import get_reward
+from .commands import get_reward, get_bonus
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +42,7 @@ class ExperimentViewer:
         self.exp: ExperimentBatch = exp
         self.config: dict = exp.config
         self.config["Reward"] = get_reward(self.config)
+        self.config["Bonus"] = get_bonus(self.config)
         self.inputs: List[dict] = exp.loadl("inputs.jsonl")
 
         self.hits: List[Optional[dict]] = exp.loadl("hits.jsonl") if exp.exists("hits.jsonl") else [None for _ in self.inputs]
@@ -67,7 +68,7 @@ class ExperimentViewer:
             }
 
         if task is None:
-            worker_ids = Counter([r["_Meta"]["WorkerId"] for responses in (self.outputs or []) for r in responses])
+            worker_ids = Counter([r["_Meta"]["WorkerId"] for responses in self.outputs for r in responses])
             return {"tasks": [per_task_info(i) for i, _ in enumerate(self.outputs)],
                     "workerIds": worker_ids.most_common()}
         elif assignment is None:

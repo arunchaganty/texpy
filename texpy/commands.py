@@ -23,7 +23,7 @@ _AMAZON_CUT = 0.2
 
 def get_reward(config: dict) -> float:
     """
-    Ensures that the tasks have a reward, bonus and estimated time in
+    Ensures that the tasks have a reward and estimated time in
     accordance with the configuration.
     """
     # Make sure that props either defines at least an estimated time +
@@ -35,6 +35,26 @@ def get_reward(config: dict) -> float:
         return config['Reward']
     else:
         return config['EstimatedTime'] * config['RewardRate'] / 3600
+
+
+def get_bonus(config: dict, reward_rate_discount: float = 0.9) -> float:
+    """
+    Ensures that the tasks have a bonus and estimated time in
+    accordance with the configuration.
+
+    Args:
+       config: The task configuration (task.yaml)
+       reward_rate_discount: A discount applied to the reward_rate. Set to 1.0
+        to use the reward rate.
+    """
+    # Make sure that props either defines at least an estimated time +
+    # rewardrate or a reward.
+    if 'Bonus' in config:
+        return config['Bonus']
+    elif 'BonusEstimatedTime' in config and 'RewardRate' in config:
+        return config['BonusEstimatedTime'] * config['RewardRate'] * reward_rate_discount / 3600
+    else:
+        return 0
 
 
 def adjust_for_sandbox(config: dict) -> dict:
@@ -98,8 +118,9 @@ def launch_task(exp: ExperimentBatch, use_prod: bool = False, **variables):
     if force_user_input("Are you sure you want to launch? ", ["y", "n"]) == "n":
         sys.exit(1)
 
-    # Get a batch id for ourselves
     config["Reward"] = get_reward(config)
+    config["Bonus"] = get_bonus(config)
+    # Get a batch id for ourselves
     hit_type_id = botox.setup_hit_type(conn, config)
     if use_prod:
         exp.store("task.yaml", config)
@@ -231,7 +252,7 @@ def check_task(exp: ExperimentBatch):
                         for decision in decisions)
                 meta["QualificationUpdated"] = None
 
-                meta["Bonus"] = exp.helper.bonus(input_, response["Answer"])
+                meta["Bonus"] = exp.helper.bonus(input_, response)
                 meta["BonusPaid"] = False
     finally:
         exp.storel("outputs.jsonl", outputs)

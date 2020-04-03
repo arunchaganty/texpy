@@ -274,7 +274,7 @@ def do_pay(args):
         if response["_Meta"]["AssignmentStatus"] == "Accepted" and not response["_Meta"]["ShouldApprove"]:
             return True
         # Anyone who is still waiting on a bonus
-        if response["_Meta"]["Bonus"] > 0 and not response["_Meta"]["BonusPaid"]:
+        if response["_Meta"].get("Bonus", 0) > 0 and not response["_Meta"]["BonusPaid"]:
             return True
 
     # Get summary of task.
