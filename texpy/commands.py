@@ -384,7 +384,7 @@ def update_payments(exp: ExperimentBatch, conn, hit: dict, response: dict,
             confirmation = "y"
         if confirmation == "y":
             logger.info("Rejecting assignment %s", meta["AssignmentId"])
-            botox.reject_assignment(conn, meta, feedback)
+            botox.reject_assignment(conn, response, feedback)
             hit['NumberOfAssignmentsRejected'] += 1
 
             if redo_rejected_hits:

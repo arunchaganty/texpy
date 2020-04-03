@@ -261,7 +261,8 @@ def delete_hit(conn, hit: dict) -> dict:
             hit['NumberOfAssignmentsApproved'] += 1
 
         hit.update(get_hit(conn, hit['HITId']))
-        assert hit['NumberOfAssignmentsPending'] == 0
+        assert hit['NumberOfAssignmentsPending'] == 0, (f"{hit['HITId']} still has "
+                "{hit['NumberOfAssignmentsPending']} pending assignments")
 
     conn.delete_hit(HITId=hit['HITId'])
     hit['DeletedAt'] = DATETIME_FORMAT.format(datetime.now())
@@ -417,21 +418,23 @@ def approve_assignment(conn, output: dict, override_rejection: bool = True):
         meta['AssignmentStatus'] = 'Approved'
     except ClientError as e:
         sync_assn(conn, output)
+        meta = output["_Meta"]
         if meta['AssignmentStatus'] == 'Approved':
             logger.info("Assignment was already approved")
         else:
             raise e
 
 
-def reject_assignment(conn, meta: dict, feedback: str):
+def reject_assignment(conn, output: dict, feedback: str):
     """
     Rejects the assignment in @meta.
     At the end of this routine, meta[AssignmentStatus] will have been set to Rejected.
     :param conn: MTurk Connection
-    :param output: Assignment
+    :param output: Assignment response
     :param feedback: Message to be sent to the worker.
     :return: None
     """
+    meta = output["_Meta"]
     try:
         conn.reject_assignment(
             AssignmentId=meta['AssignmentId'],
@@ -439,6 +442,7 @@ def reject_assignment(conn, meta: dict, feedback: str):
         meta['AssignmentStatus'] = 'Rejected'
     except ClientError as e:
         sync_assn(conn, output)
+        meta = output["_Meta"]
         if meta['AssignmentStatus'] == 'Approved':
             logger.error("Assignment was earlier approved and can't be rejected now")
         elif meta['AssignmentStatus'] == 'Rejected':
