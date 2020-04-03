@@ -103,6 +103,37 @@ def sanitize(obj: T) -> T:
         return obj
 
 
+def mark_for_sanitization(obj: T, field_names: List[str]) -> T:
+    """
+    Updates fields in `obj` by prepending a '_' for all fields in `field_names`.
+    These fields are subsequently removed by `sanitize` when sending data to
+    MTurk.
+    """
+    if isinstance(obj, list):
+        return cast(T, [mark_for_sanitization(obj_) for obj_ in obj])
+    elif isinstance(obj, dict):
+        return cast(T, {
+            f"_{key}" if key in field_names else key: sanitize(value)
+            for key, value in obj.items()})
+    else:
+        return obj
+
+
+def unmark_for_sanitization(obj: T) -> T:
+    """
+    Updates fields in `obj` by removing any '_' prefixes.
+    This undoes the transformation in `mark_for_sanitization`.
+    """
+    if isinstance(obj, list):
+        return cast(T, [unmark_for_sanitization(obj_) for obj_ in obj])
+    elif isinstance(obj, dict):
+        return cast(T, {
+            key[1:] if key.startswith("_") else key: sanitize(value)
+            for key, value in obj.items()})
+    else:
+        return obj
+
+
 # region: Span utilities
 Span = Tuple[int, int]
 
