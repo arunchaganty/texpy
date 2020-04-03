@@ -340,7 +340,10 @@ def do_export(args):
 
 def do_metrics(args):
     exp = Experiment(args.root).find(args.idx)
+    aggregate_task(exp)
     metrics = compute_metrics(exp)
+    # Print metrics.
+    print("=== Metrics ===")
     yaml.safe_dump(metrics, sys.stdout)
 
 
