@@ -53,14 +53,17 @@ def create_qualification(conn, name: str, keywords: str, description: str, auto_
     return response['QualificationType']['QualificationTypeId']
 
 
-def get_qualification(conn, qual_id: str, worker_id: str) -> int:
+def get_qualification(conn, qual_id: str, worker_id: str) -> Optional[int]:
     """
     Gets the qualification score for a particular worker.
     """
-    resp = conn.get_qualification_score(
-        QualificationTypeId=qual_id,
-        WorkerId=worker_id)
-    return resp['Qualification']['IntegerValue']
+    try:
+        resp = conn.get_qualification_score(
+            QualificationTypeId=qual_id,
+            WorkerId=worker_id)
+        return resp['Qualification']['IntegerValue']
+    except ClientError:
+        return None
 
 
 def set_qualification(conn, qual_id: str, worker_id: str, value: int, *, reason: str = ""):

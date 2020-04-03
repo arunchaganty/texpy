@@ -370,14 +370,19 @@ def do_create_qual(args):
 
 
 # region: manual intervention
-# def do_set_qual(args):
-#     exp = Experiment(args.root).find(args.idx)
-#     props = exp.load('hit_properties.json')
-#
-#     conn = botox.get_client(args)
-#     botox.set_qualification(conn, props['QualificationTypeId'], args.worker_id, args.value)
-#
-#
+def do_set_qual(args):
+    exp = Experiment(args.root).find(args.idx)
+
+    conn = botox.get_client(args)
+    for worker_id in args.worker_ids:
+        current_score = botox.get_qualification(conn, exp.config["QualificationTypeId"], worker_id)
+        if args.update or current_score is None:
+            botox.set_qualification(conn, exp.config["QualificationTypeId"], worker_id, args.value)
+            logger.info(f"Assigned qualification score of {args.value} of {worker_id}")
+        else:
+            logger.info(f"{worker_id} already has a qualification score of {current_score}")
+
+
 # def do_query(args):
 #     exp = Experiment(args.root).find(args.idx)
 #     props = exp.load('hit_properties.json')
@@ -523,11 +528,12 @@ def main():
     command_parser.set_defaults(func=do_create_qual)
 
     # region: manual commands
-    # command_parser = subparsers.add_parser('set-qual', help='Handle a qualification')
-    # command_parser.add_argument('-W', '--worker_id', type=str, help="Worker to update quals for")
-    # command_parser.add_argument('-V', '--value', type=int, default=100, help="Auto-granted value")
-    # command_parser.add_argument('idx', type=int, nargs="?", help="If provided, the batch index to use")
-    # command_parser.set_defaults(func=do_set_qual)
+    command_parser = subparsers.add_parser('set-qual', help='Handle a qualification')
+    command_parser.add_argument('-W', '--worker-ids', nargs="+", type=str, required=True, help="Workers to update quals for")
+    command_parser.add_argument('-V', '--value', type=int, required=True, help="The value to set for the worker")
+    command_parser.add_argument('-U', '--update', action="store_true", help="If true, update the qual")
+    command_parser.add_argument('idx', type=int, nargs="?", help="If provided, the batch index to use")
+    command_parser.set_defaults(func=do_set_qual)
 
     # command_parser = subparsers.add_parser('query', help='Converts an old directory into a new one.')
     # command_parser.add_argument('-W', '--worker-id', type=str, help="Worker id to query")
