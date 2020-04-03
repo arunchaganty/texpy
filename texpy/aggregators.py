@@ -39,7 +39,7 @@ def majority_interval(lst: List[List[Span]]) -> List[Span]:
         span for spans in lst for span in spans])
 
     # 3. Filter to only majoritarian spans
-    ret = [(span.begin, span.end) for span in canonical_spans if span.count >= len(lst)/2]
+    ret = [(span.begin, span.end) for span in canonical_spans if span.weight >= len(lst)/2]
 
     # 4. Collapse adjacent intervals that were selected
     for i in range(len(ret)-1, 0, -1):

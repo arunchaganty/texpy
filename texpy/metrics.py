@@ -105,7 +105,7 @@ def _span_agreement(a: List[Span], b: List[Span]) -> float:
 
     union = sum(span.end - span.begin for span in spans)
     # Span count can only be greater than 1 if both a and b match.
-    intersection = sum(span.end - span.begin for span in spans if span.count > 1)
+    intersection = sum(span.end - span.begin for span in spans if span.weight > 1)
 
     return intersection / union
 

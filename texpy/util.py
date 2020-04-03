@@ -144,14 +144,12 @@ def collapse_spans(lst: List[Span]) -> List[WeightedSpan]:
             # each (with one overlapping span) pivoted at span.begin
             # First, we'll update last_span to its new boundary.
             canonical_spans[-1] = WeightedSpan(last_span.begin, span.begin, last_span.weight)
-            # Then, we'll break last_span by adding [span.begin,
-            # last_span.end) to our queue
+            # Then, we'll break last_span at span.begin
             heapq.heappush(all_spans, 
-                    WeightedSpan(span.begin, last_span.end, last_span.weight + span.weight))
-            # Finally, we'll break span by adding [last_span.end,
-            # span.end) to our queue
+                    WeightedSpan(span.begin, last_span.end, last_span.weight))
+            # And push `span` back into the queue.
             heapq.heappush(all_spans, 
-                    WeightedSpan(last_span.end, span.end, span.weight))
+                    WeightedSpan(span.begin, span.end, span.weight))
         elif last_span.end < span.end:
             # We are going to split span into two segments pivoted
             # around last_span.end, and increment counts appropriately
@@ -167,3 +165,22 @@ def collapse_spans(lst: List[Span]) -> List[WeightedSpan]:
                     last_span.weight + span.weight)
 
     return canonical_spans
+
+
+def test_collapse_spans():
+    # Disjoint spans
+    assert collapse_spans([(10, 20), (30, 40)]) == [WeightedSpan(10, 20, 1), WeightedSpan(30, 40, 1)] 
+    # Overlapping spans
+    assert collapse_spans([(10, 30), (20, 40)]) == [WeightedSpan(10, 20, 1), WeightedSpan(20, 30, 2), WeightedSpan(30, 40, 1)] 
+
+    # More complex overlap
+    assert collapse_spans([(33, 56), (38, 41), (45, 48), (52, 56)]) == [
+            WeightedSpan(33, 38, 1),
+            WeightedSpan(38, 41, 2),
+            WeightedSpan(41, 45, 1),
+            WeightedSpan(45, 48, 2),
+            WeightedSpan(48, 52, 1),
+            WeightedSpan(52, 56, 2),
+            ]
+
+# endregion
