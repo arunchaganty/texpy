@@ -50,6 +50,23 @@ class TaskHelper:
     # endregion
 
     # region: data validation and aggregation
+    def aggregate_all_responses(self, inputs: List[dict],
+                                outputs: List[List[dict]]) -> List[dict]:
+        """
+        Aggregates all responses in the task
+
+        Args:
+            inputs: A list of all the raw input provided to this task.
+            outputs: A list of task responses. Each raw_response is
+                           a dictionary with key-value pairs from the
+                           form's fields.
+        Returns:
+            A list of dictionaries that represent the aggregated responses for each task.
+            The responses are epxected to contain the same format as individual elements of outputs.
+        """
+        return [self.aggregate_responses(input_, responses)
+                for input_, responses in zip(inputs, outputs)]
+
     def aggregate_responses(self, input_: dict, raw_responses: List[dict]) -> dict:
         """
         Aggregates multiple raw responses.

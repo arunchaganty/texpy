@@ -177,8 +177,7 @@ def aggregate_task(exp: ExperimentBatch) -> List[dict]:
     inputs = exp.loadl('inputs.jsonl')
     outputs = exp.loadl("outputs.jsonl")
 
-    ret = [exp.helper.aggregate_responses(input_, responses)
-           for input_, responses in tqdm(zip(inputs, outputs), total=len(inputs))]
+    ret = exp.helper.aggregate_all_responses(inputs, outputs)
 
     exp.storel("agg.jsonl", ret)
     return ret
