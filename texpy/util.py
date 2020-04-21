@@ -1,6 +1,7 @@
 """
 Utilities
 """
+from collections import defaultdict
 
 import heapq
 import json
@@ -214,4 +215,25 @@ def test_collapse_spans():
             WeightedSpan(52, 56, 2),
             ]
 
+# endregion
+
+
+# region: dictionary manipulation
+W = TypeVar('W')
+
+
+def invert_dict(data: Dict[T, Dict[W, Any]]) -> Dict[W, Dict[T, Any]]:
+    ret = defaultdict(dict)
+    for m, dct in data.items():
+        for n, v in dct.items():
+            ret[n][m] = v
+    return ret
+
+
+def flatten_dict(data: Dict[T, Dict[W, Any]]) -> Dict[Tuple[T, W], Any]:
+    ret = {}
+    for k, vs in data.items():
+        for k_, v in vs.items():
+            ret[k, k_] = v
+    return ret
 # endregion

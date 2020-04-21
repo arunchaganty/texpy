@@ -5,13 +5,10 @@ import numpy as np
 import scipy.stats as scstats
 from typing import List, TypeVar, Dict, Any, Tuple, Optional, Iterable, Callable
 from .aggregators import mean, std, median, percentile, median_absolute_deviation
-from .util import Span, WeightedSpan, collapse_spans
+from .util import Span, WeightedSpan, collapse_spans, invert_dict, flatten_dict
 
 T = TypeVar('T')
 W = TypeVar('W')
-
-
-Span = Tuple[int, int]
 
 
 # region: dictionary manipulation
@@ -19,22 +16,6 @@ def as_task_worker_dict(values: Iterable[Tuple[T, W, Any]]) -> Dict[T, Dict[W, A
     ret = defaultdict(dict)
     for id_1, id_2, value in values:
         ret[id_1][id_2] = value
-    return ret
-
-
-def invert_dict(data: Dict[T, Dict[W, Any]]) -> Dict[W, Dict[T, Any]]:
-    ret = defaultdict(dict)
-    for m, dct in data.items():
-        for n, v in dct.items():
-            ret[n][m] = v
-    return ret
-
-
-def flatten_dict(data: Dict[T, Dict[W, Any]]) -> Dict[Tuple[T, W], Any]:
-    ret = {}
-    for k, vs in data.items():
-        for k_, v in vs.items():
-            ret[k, k_] = v
     return ret
 # endregion
 
