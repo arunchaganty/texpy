@@ -134,8 +134,8 @@ def do_launch(args):
     # HITIds we won't be able to pay or clear old tasks.
     if exp.exists('hits.jsonl'):
         logger.fatal(f"You've already launched some HITs! If you are " +
-                     "*sure* that's not the case, run `texpy clear {exp.type}` " +
-                     "OR delete {exp.path('hits.jsonl')}")
+                     f"*sure* that's not the case, run `texpy clear {exp.idx}` " +
+                     f"OR delete {exp.path('hits.jsonl')}")
         sys.exit(1)
 
     # Run pre-launch hooks.

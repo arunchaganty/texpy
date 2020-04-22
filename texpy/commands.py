@@ -91,13 +91,14 @@ def launch_task(exp: ExperimentBatch, use_prod: bool = False, **variables):
     # 1. Render all the tasks to HTML
     with exp.open('index.html') as f:
         template = Template(f.read())
-    htmls = [template.render({'input': sanitize(input_), 'config': config, **variables, })
-             for input_ in tqdm(inputs, desc="rendering inputs")]
 
     # 2. Tweak properties for the sandbox.
     if not use_prod:
         config = adjust_for_sandbox(config)
-        inputs, htmls = inputs[:2], htmls[:2]
+        inputs = inputs[:2]
+
+    htmls = [template.render({'input': sanitize(input_), 'config': config, **variables, })
+             for input_ in tqdm(inputs, desc="rendering inputs")]
 
     # 3. Make sure we're running the right configurations.
     reward = get_reward(config)

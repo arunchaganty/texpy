@@ -7,6 +7,7 @@ import heapq
 import json
 import logging
 from typing import Dict, TypeVar, Tuple, NamedTuple, List, Union, Any, cast
+from typing import Sequence, Callable
 from .quality_control import QualityControlDecision
 
 
@@ -129,7 +130,7 @@ def unmark_for_sanitization(obj: T) -> T:
         return cast(T, [unmark_for_sanitization(obj_) for obj_ in obj])
     elif isinstance(obj, dict):
         return cast(T, {
-            key[1:] if key.startswith("_") else key: sanitize(value)
+            (key[1:] if key.startswith("_") else key): unmark_for_sanitization(value)
             for key, value in obj.items()})
     else:
         return obj
@@ -147,63 +148,77 @@ class WeightedSpan(NamedTuple):
     end: int
     weight: int = 1
 
+    def __contains__(self, other):
+        return other.begin >= self.begin and other.end <= self.end
 
-def collapse_spans(lst: List[Span]) -> List[WeightedSpan]:
+    @classmethod
+    def collapse_spans(cls, lst: List['WeightedSpan']) -> List['WeightedSpan']:
+        """
+        Convert a list of spans into non-overlapping versions with weights
+        for each overlapping section.
+        """
+        if not lst: return []
+
+        all_spans = list(lst)
+        heapq.heapify(all_spans)
+
+        # 1. Figure out what the interval spans that we'll count over are
+        #    We do this by setting up split points
+        canonical_spans = [heapq.heappop(all_spans)]
+        while all_spans:
+            span = heapq.heappop(all_spans)
+            last_span = canonical_spans[-1]
+            assert last_span.begin <= span.begin
+
+            # If the spans don't even overlap, we can safely add this to
+            # the canonical list.
+            if not(last_span.begin < span.end and span.begin < last_span.end):
+                canonical_spans.append(span)
+            # We now handle the different overlapping cases.
+            elif last_span.begin < span.begin:
+                # We are going to split last_span and span into two segments
+                # each (with one overlapping span) pivoted at span.begin
+                # First, we'll update last_span to its new boundary.
+                canonical_spans[-1] = WeightedSpan(last_span.begin, span.begin, last_span.weight)
+                # Then, we'll break last_span at span.begin
+                heapq.heappush(all_spans, 
+                        WeightedSpan(span.begin, last_span.end, last_span.weight))
+                # And push `span` back into the queue.
+                heapq.heappush(all_spans, 
+                        WeightedSpan(span.begin, span.end, span.weight))
+            elif last_span.end < span.end:
+                # We are going to split span into two segments pivoted
+                # around last_span.end, and increment counts appropriately
+                canonical_spans[-1] = WeightedSpan(last_span.begin, last_span.end,
+                        last_span.weight + span.weight)
+                # Create a new segment from [last_span.end, span.end)
+                heapq.heappush(all_spans,
+                        WeightedSpan(last_span.end, span.end, span.weight))
+            else:
+                # We have a complete overlap and are just going to increment
+                # counts
+                canonical_spans[-1] = WeightedSpan(last_span.begin, last_span.end,
+                        last_span.weight + span.weight)
+
+        return canonical_spans
+
+
+def collapse_spans(lst: List[Span]) -> List[Span]:
     """
     Convert a list of spans into non-overlapping versions with weights
     for each overlapping section.
     """
-    if not lst: return []
-
-    all_spans = [WeightedSpan(*span) for span in lst]
-    heapq.heapify(all_spans)
-
-    # 1. Figure out what the interval spans that we'll count over are
-    #    We do this by setting up split points
-    canonical_spans = [heapq.heappop(all_spans)]
-    while all_spans:
-        span = heapq.heappop(all_spans)
-        last_span = canonical_spans[-1]
-        assert last_span.begin <= span.begin
-
-        # If the spans don't even overlap, we can safely add this to
-        # the canonical list.
-        if not(last_span.begin < span.end and span.begin < last_span.end):
-            canonical_spans.append(span)
-        # We now handle the different overlapping cases.
-        elif last_span.begin < span.begin:
-            # We are going to split last_span and span into two segments
-            # each (with one overlapping span) pivoted at span.begin
-            # First, we'll update last_span to its new boundary.
-            canonical_spans[-1] = WeightedSpan(last_span.begin, span.begin, last_span.weight)
-            # Then, we'll break last_span at span.begin
-            heapq.heappush(all_spans, 
-                    WeightedSpan(span.begin, last_span.end, last_span.weight))
-            # And push `span` back into the queue.
-            heapq.heappush(all_spans, 
-                    WeightedSpan(span.begin, span.end, span.weight))
-        elif last_span.end < span.end:
-            # We are going to split span into two segments pivoted
-            # around last_span.end, and increment counts appropriately
-            canonical_spans[-1] = WeightedSpan(last_span.begin, last_span.end,
-                    last_span.weight + span.weight)
-            # Create a new segment from [last_span.end, span.end)
-            heapq.heappush(all_spans,
-                    WeightedSpan(last_span.end, span.end, span.weight))
-        else:
-            # We have a complete overlap and are just going to increment
-            # counts
-            canonical_spans[-1] = WeightedSpan(last_span.begin, last_span.end,
-                    last_span.weight + span.weight)
-
-    return canonical_spans
+    return [(wspan.begin, wspan.end)
+            for wspan in WeightedSpan.collapse_spans([WeightedSpan(*span) for span in lst])]
 
 
 def test_collapse_spans():
     # Disjoint spans
-    assert collapse_spans([(10, 20), (30, 40)]) == [WeightedSpan(10, 20, 1), WeightedSpan(30, 40, 1)] 
+    assert collapse_spans([(10, 20), (30, 40)]) == [
+            WeightedSpan(10, 20, 1), WeightedSpan(30, 40, 1)] 
     # Overlapping spans
-    assert collapse_spans([(10, 30), (20, 40)]) == [WeightedSpan(10, 20, 1), WeightedSpan(20, 30, 2), WeightedSpan(30, 40, 1)] 
+    assert collapse_spans([(10, 30), (20, 40)]) == [
+            WeightedSpan(10, 20, 1), WeightedSpan(20, 30, 2), WeightedSpan(30, 40, 1)] 
 
     # More complex overlap
     assert collapse_spans([(33, 56), (38, 41), (45, 48), (52, 56)]) == [
@@ -215,6 +230,42 @@ def test_collapse_spans():
             WeightedSpan(52, 56, 2),
             ]
 
+
+def merge_adjacent_spans(spans: List[Span]) -> List[Span]:
+    """
+    Merges adjacent spans in a list of spans.
+    
+    Usage:
+    >>> ret = merge_adjacent_spans([(0, 10), (10, 20), (30, 40)])
+    >>> assert ret == [(0, 20), (30, 40)]
+
+    Args:
+        spans: a list of non-overlapping spans, some of which may be adjacent
+
+    Returns:
+        a list of non-overlapping, non-adjacent spans equivalent to `spans`.
+    """
+    # 4. Collapse adjacent intervals in reverse
+    for i in range(len(spans) - 1, 0, -1):
+        span, prev_span = spans[i], spans[i - 1]
+        if prev_span[1] == span[0]:
+            spans.pop(i)
+            spans[i - 1] = (prev_span[0], span[1])
+    return spans
+
+
+def test_merge_adjacent_spans():
+    assert [(0, 4), (8, 18)] == merge_adjacent_spans([
+        (0, 4), (8, 18)
+    ])
+
+    assert [(0, 6), (8, 18)] == merge_adjacent_spans([
+        (0, 4), (4, 6), (8, 18)
+    ])
+
+    assert [(0, 18)] == merge_adjacent_spans([
+        (0, 4), (4, 8), (8, 18)
+    ])
 # endregion
 
 
@@ -236,4 +287,27 @@ def flatten_dict(data: Dict[T, Dict[W, Any]]) -> Dict[Tuple[T, W], Any]:
         for k_, v in vs.items():
             ret[k, k_] = v
     return ret
+
+
+def group_by(data: Sequence[T], key_fn: Callable[[T], W]) -> Dict[W, List[T]]:
+    """
+    Groups a sequence of elements by some key
+
+    Usage:
+        >>> groups = group_by([("a", 1), ("b", 2), ("a", 3), ("b", 4)], lambda elem: elem[0])
+        >>> assert groups == {"a": [("a", 1), ("a", 3)], "b": [("b", 2), , ("b", 4)]}
+
+    Args:
+        data: A sequence of objects
+        key_fn: A function that produces a key given an object from `data`
+
+    Returns:
+        A dictionary with keys returned by `key_fn`; each value is a list of objects from `data`
+        that have the same key.
+    """
+    ret: Dict[W, List[T]] = defaultdict(list)
+    for elem in data:
+        ret[key_fn(elem)].append(elem)
+    return ret
+
 # endregion

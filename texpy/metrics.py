@@ -79,7 +79,8 @@ def _span_agreement(a: List[Span], b: List[Span]) -> float:
     """
     We define agreement as Jaccard similarity of the spans
     """
-    spans: List[WeightedSpan] = collapse_spans(a + b)
+    spans: List[WeightedSpan] = WeightedSpan.collapse_spans([
+        WeightedSpan(*span) for span in (a + b)])
 
     if not spans:
         return 1
@@ -189,9 +190,9 @@ def test_krippendorf_alpha():
         'B': {1: 0, 3: 1, 4: 0, 5: 2, 6: 2, 7: 3, 8: 2, },
         'C': {3: 1, 4: 0, 5: 2, 6: 3, 7: 3, 9: 1, 10: 0, 11: 0, 12: 2, 13: 2, 15: 3, },
     })
-    assert np.allclose(krippendorf_alpha(data, metric="nominal", infer_values=False, n_values=4), 0.691, 5e-3)
-    assert np.allclose(krippendorf_alpha(data, metric="interval", infer_values=False, n_values=4), 0.811, 5e-3)
-    assert np.allclose(krippendorf_alpha(data, metric="ordinal", infer_values=False, n_values=4), 0.807, 5e-3)
+    assert np.allclose(krippendorf_alpha(data, metric="nominal", infer_values=False, n_values=4), 0.691, atol=5e-3)
+    assert np.allclose(krippendorf_alpha(data, metric="interval", infer_values=False, n_values=4), 0.811, atol=5e-3)
+    assert np.allclose(krippendorf_alpha(data, metric="ordinal", infer_values=False, n_values=4), 0.807, atol=5e-3)
 
 
 def pearson_rho(task_worker_values: Dict[T, Dict[W, float]]) -> Dict[W, Optional[float]]:
@@ -229,9 +230,9 @@ def test_pearson_rho():
         'C': {3: 1, 4: 0, 5: 2, 6: 3, 7: 3, 9: 1, 10: 0, 11: 0, 12: 2, 13: 2, 15: 3, },
     })
     rhos = pearson_rho(data)
-    assert np.allclose(rhos['A'], 0.947, 5e-3)
-    assert np.allclose(rhos['B'], 0.947, 5e-3)
-    assert np.allclose(rhos['C'], 0.947, 5e-3)
+    assert np.allclose(rhos['A'], 0.947, atol=5e-3)
+    assert np.allclose(rhos['B'], 0.909, atol=5e-3)
+    assert np.allclose(rhos['C'], 0.984, atol=5e-3)
 
 
 def pairwise_agreement(task_worker_values: Dict[T, Dict[W, Any]],
@@ -280,7 +281,7 @@ def test_pairwise_agreement_nominal():
         'C': {3: 1, 4: 0, 5: 2, 6: 3, 7: 3, 9: 1, 10: 0, 11: 0, 12: 2, 13: 2, 15: 3, },
     })
     agreement = pairwise_agreement(data, "nominal")
-    assert np.allclose(agreement, 0.75, 5e-3)
+    assert np.allclose(agreement, 0.75, atol=5e-3)
 
 
 def test_pairwise_agreement_ordinal():
@@ -290,8 +291,8 @@ def test_pairwise_agreement_ordinal():
         'B': {1: 0, 3: 1, 4: 0, 5: 2, 6: 2, 7: 3, 8: 2, },
         'C': {3: 1, 4: 0, 5: 2, 6: 3, 7: 3, 9: 1, 10: 0, 11: 0, 12: 2, 13: 2, 15: 3, },
     })
-    agreement = pairwise_agreement(data, "ordinal")
-    assert np.allclose(agreement, 0.75, 5e-3)
+    agreement = pairwise_agreement(data, "ordinal", n_values=4)
+    assert np.allclose(agreement, 0.895, atol=5e-3)
 
 
 # Alias for backward compatibility.
@@ -341,8 +342,9 @@ def test_mean_agreement_nominal():
         'B': {1: 0, 3: 1, 4: 0, 5: 2, 6: 2, 7: 3, 8: 2, },
         'C': {3: 1, 4: 0, 5: 2, 6: 3, 7: 3, 9: 1, 10: 0, 11: 0, 12: 2, 13: 2, 15: 3, },
     })
-    agreement = mean_agreement(data, {}, "nominal")
-    assert np.allclose(agreement, 0.75, 5e-3)
+    agg = {1: 0, 3: 1, 4: 0, 5: 2, 6: 2, 7: 3, 8: 2, 9: 1, 10: 0, 11: 0, 12: 2, 13: 2, 15: 2}
+    agreement = mean_agreement(data, agg, "nominal")
+    assert np.allclose(agreement, 0.884, atol=5e-3)
 
 
 def test_mean_agreement_ordinal():
@@ -352,12 +354,13 @@ def test_mean_agreement_ordinal():
         'B': {1: 0, 3: 1, 4: 0, 5: 2, 6: 2, 7: 3, 8: 2, },
         'C': {3: 1, 4: 0, 5: 2, 6: 3, 7: 3, 9: 1, 10: 0, 11: 0, 12: 2, 13: 2, 15: 3, },
     })
-    agreement = mean_agreement(data, {}, "ordinal")
-    assert np.allclose(agreement, 0.75, 5e-3)
+    agg = {1: 0, 3: 1, 4: 0, 5: 2, 6: 2, 7: 3, 8: 2, 9: 1, 10: 0, 11: 0, 12: 2, 13: 2, 15: 2}
+    agreement = mean_agreement(data, agg, "ordinal", n_values=4)
+    assert np.allclose(agreement, 0.948, atol=5e-3)
 
 
 def mean_agreement_per_worker(task_worker_values: Dict[T, Dict[W, Any]], agg: Dict[T, Any],
-                   mode: str = "nominal", n_values: Optional[int] = None) -> Dict[W, List[float]]:
+                   mode: str = "nominal", n_values: Optional[int] = None) -> Dict[W, float]:
     """
     Computes simple agreement on @task_worker_values
     :param task_worker_values:
@@ -388,7 +391,7 @@ def mean_agreement_per_worker(task_worker_values: Dict[T, Dict[W, Any]], agg: Di
         for worker, value in worker_values.items():
             # compute probability
             ret[worker].append(fn(agg_value, value))
-    return dict(ret)
+    return {worker: float(np.mean(values)) for worker, values in ret.items()}
 
 
 def test_mean_agreement_per_worker_nominal():
@@ -398,8 +401,11 @@ def test_mean_agreement_per_worker_nominal():
         'B': {1: 0, 3: 1, 4: 0, 5: 2, 6: 2, 7: 3, 8: 2, },
         'C': {3: 1, 4: 0, 5: 2, 6: 3, 7: 3, 9: 1, 10: 0, 11: 0, 12: 2, 13: 2, 15: 3, },
     })
-    agreement = mean_agreement_per_worker(data, {}, "nominal")
-    assert np.allclose(agreement, 0.75, 5e-3)
+    agg = {1: 0, 3: 1, 4: 0, 5: 2, 6: 2, 7: 3, 8: 2, 9: 1, 10: 0, 11: 0, 12: 2, 13: 2, 15: 2}
+    agreement = mean_agreement_per_worker(data, agg, "nominal")
+    assert np.allclose(agreement["A"], 0.888, atol=5e-3)
+    assert np.allclose(agreement["B"], 1.0, atol=5e-3)
+    assert np.allclose(agreement["C"], 0.818, atol=5e-3)
 
 
 def test_mean_agreement_per_worker_ordinal():
@@ -409,8 +415,11 @@ def test_mean_agreement_per_worker_ordinal():
         'B': {1: 0, 3: 1, 4: 0, 5: 2, 6: 2, 7: 3, 8: 2, },
         'C': {3: 1, 4: 0, 5: 2, 6: 3, 7: 3, 9: 1, 10: 0, 11: 0, 12: 2, 13: 2, 15: 3, },
     })
-    agreement = mean_agreement_per_worker(data, {}, "ordinal")
-    assert np.allclose(agreement, 0.75, 5e-3)
+    agg = {1: 0, 3: 1, 4: 0, 5: 2, 6: 2, 7: 3, 8: 2, 9: 1, 10: 0, 11: 0, 12: 2, 13: 2, 15: 2}
+    agreement = mean_agreement_per_worker(data, agg, "ordinal", n_values=4)
+    assert np.allclose(agreement["A"], 0.925, atol=5e-3)
+    assert np.allclose(agreement["B"], 1.0, atol=5e-3)
+    assert np.allclose(agreement["C"], 0.939, atol=5e-3)
 
 
 def per_worker(task_worker_values: Dict[T, Dict[W, Any]]) -> Dict[W, List[Any]]:

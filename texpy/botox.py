@@ -192,8 +192,6 @@ def launch_hit(conn, hit_type_id: str, config: dict, html: str) -> dict:
     Returns:
         A dictionary describing the HIT.
     """
-    assert 'HITTypeId' in config, "Unable to load a batch without `HITTypeId` in config"
-
     response = conn.create_hit_with_hit_type(
         HITTypeId=hit_type_id,
         MaxAssignments=config['MaxAssignments'],
