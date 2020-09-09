@@ -24,8 +24,6 @@ import yaml
 import logging
 from importlib.util import spec_from_file_location, module_from_spec
 from typing import TextIO, List, cast, Optional
-from argparse import ArgumentError
-
 from .util import load_jsonl, save_jsonl, SimpleObject, first
 from .quality_control import QualityControlDecision
 

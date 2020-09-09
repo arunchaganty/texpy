@@ -60,10 +60,6 @@ class Task(TaskHelper):
             A dictionary that aggregates the responses with the same keys.
         """
 
-        # NOTE: It is up to you to parse the form response here correctly. In
-        # this example, the answer form is populated by a single field "output"
-        # which takes true/false values (it is a radio button).
-
         values = [bool(r["Answer"]["output"]) for r in raw_responses]
         return {
             "output": majority_vote(values),

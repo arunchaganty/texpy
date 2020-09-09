@@ -293,7 +293,7 @@ def pay_task(exp: ExperimentBatch, use_prod: bool = False):
                 exp.storel("outputs.jsonl", outputs)
 
     if not use_prod:
-        logger.info("Not updating qualifications on prod")
+        logger.info("Not updating qualifications on sandbox")
         return
 
     qual_id = config.get("QualificationTypeId")
