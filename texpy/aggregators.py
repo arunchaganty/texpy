@@ -26,16 +26,17 @@ def majority_interval(lst: List[List[Span]]) -> List[Span]:
     """
     Aggregates a list of intervals
 
-    Example (annotations are the underlines):
-    This is an example
-    ----
-    ----    ----------
-            ----------
-    ------------------
+    Example (annotations are the underlines)::
+        # Input:
+        This is an example
+        ----
+        ----    ----------
+                ----------
+        ------------------
 
-    would result in
-    This is an example
-    ----    ----------
+        # Output:
+        This is an example
+        ----    ----------
     """
     # 1. Collapse spans into non-overlapping sets weighted by frequency
     canonical_spans: List[WeightedSpan] = WeightedSpan.collapse_spans([
@@ -129,13 +130,14 @@ def dawid_skene_model(
     Aggregates worker responses using a Dawid-Skene model.
 
     The Dawid-Skene is a simple probablistic graphical model. Here is the generative process:
-    - We draw a multinomial distribution over labels $\pi ~ Dirichlet(\alpha)$.
+
+    * We draw a multinomial distribution over labels $\pi ~ Dirichlet(\alpha)$.
       In practice, we assume $\alpha$ is given and is a uniform distribution. This is just Laplace
       smoothing
-    - We draw multinomial confusion matrices for each annotator $a$: $C^a_{k} ~ Dirichlet(\beta)$,
+    * We draw multinomial confusion matrices for each annotator $a$: $C^a_{k} ~ Dirichlet(\beta)$,
       where $k \in [K]$ the set of true values.
-    - For each task $t$, we draw it's true label $r^*_t ~ \pi$.
-    - For each task $t$ and annotator (that performed the task), we draw the observed response:
+    * For each task $t$, we draw it's true label $r^*_t ~ \pi$.
+    * For each task $t$ and annotator (that performed the task), we draw the observed response:
       $r^a_t ~ C^a_{r^*_t}$.
 
     The results of the model are inferred using the EM algorithm.
@@ -295,13 +297,14 @@ try:
         See `dawid_skene_model` for more details about the conventional Dawid-Skene model.
 
         This version applies the following discriminative process:
-        - We draw a multinomial distribution over labels $\pi ~ Dirichlet(\alpha)$.
+
+        * We draw a multinomial distribution over labels $\pi ~ Dirichlet(\alpha)$.
           In practice, we assume $\alpha$ is given and is a uniform distribution---
           this is just Laplace smoothing. Let K be the number of labels.
-        - We draw a K x K x D matrix for each annotator $a$: $C^a_{k} ~ Gaussian(I, \beta)$,
+        * We draw a K x K x D matrix for each annotator $a$: $C^a_{k} ~ Gaussian(I, \beta)$,
           where $k \in [K]$, the set of labels.
-        - For each task $t$, we draw it's true label $r^*_t ~ \pi$.
-        - For each task $t$ and annotator (that performed the task), we draw the observed response:
+        * For each task $t$, we draw it's true label $r^*_t ~ \pi$.
+        * For each task $t$ and annotator (that performed the task), we draw the observed response:
           $r^a_t ~ C^a_{r^*_t}$.
 
         The results of the model are inferred using the EM algorithm.
