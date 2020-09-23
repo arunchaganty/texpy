@@ -7,11 +7,11 @@ variables: {}
 # and all the variables defined above.
 hooks:
     # Run right after initialization and during updates.
-    init/post:
+    init/post: []
         # Here, we're just copying over the HTML from the static
         # directory.
-        - "rm -rf {exp.mypath}/static"
-        - "cp -r static {exp.mypath}"
+        # - "rm -rf {exp.mypath}/static"
+        # - "cp -r static {exp.mypath}"
 
         # This example copies contents from an NPM package over.
         # - "rm -rf {exp.path}/static"

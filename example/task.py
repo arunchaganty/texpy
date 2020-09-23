@@ -80,7 +80,7 @@ class Task(TaskHelper):
 
         ret = unmark_for_sanitization(deepcopy(input_))
         ret["label"] = value
-        return ret
+        return [ret]
 
     def compute_metrics(self, inputs: List[dict], outputs: List[List[dict]],
                         agg: List[dict]) -> dict:
