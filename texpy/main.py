@@ -140,7 +140,7 @@ def do_launch(args):
 
     # Run pre-launch hooks.
     _run_hook(args.config["hooks"].get("launch/pre", []), exp=exp, **_get_variables(exp, args.config))
-    launch_task(exp, use_prod=args.prod, **_get_variables(exp, args.config))
+    launch_task(exp, use_prod=args.prod, max_hits=args.max_hits, **_get_variables(exp, args.config))
     _run_hook(args.config["hooks"].get("launch/post", []), exp=exp, **_get_variables(exp, args.config))
 
 
@@ -483,6 +483,8 @@ def main():
     command_parser = subparsers.add_parser('launch', help='launch an experiment onto the server and turk')
     command_parser.add_argument('-F', '--force', action='store_true', default=False,
                                 help="Force changes in reward and estimated time to match properties")
+    command_parser.add_argument('-n', '--max-hits', type=int,
+                                help="The number of HITs to publish (defaults to 2 in sandbox)")
     command_parser.add_argument('idx', type=int, nargs="?", help="If provided, the batch index to use")
     command_parser.set_defaults(func=do_launch)
 

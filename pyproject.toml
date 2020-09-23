@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "texpy"
-version = "0.1.0"
+version = "0.1.1"
 description = "Python-based tool to manage Amazon Mechanical Turk experiments"
 authors = ["Arun Tejasvi Chaganty <chaganty@cs.stanford.edu>"]
 license = "MIT"

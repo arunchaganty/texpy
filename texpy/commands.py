@@ -5,7 +5,7 @@ Useful commands for the runtime.
 import logging
 import sys
 from datetime import datetime
-from typing import List, cast
+from typing import List, Optional, cast
 from collections import defaultdict
 
 import yaml
@@ -70,7 +70,10 @@ def adjust_for_sandbox(config: dict) -> dict:
     return config
 
 
-def launch_task(exp: ExperimentBatch, use_prod: bool = False, **variables):
+def launch_task(exp: ExperimentBatch,
+                use_prod: bool = False,
+                max_hits: Optional[int] = None,
+                **variables):
     """
     Launches tasks for an experiment.
     Roughly, we:
@@ -82,6 +85,7 @@ def launch_task(exp: ExperimentBatch, use_prod: bool = False, **variables):
     Args:
        exp: the experiment to run
        use_prod: if true, we use the AMT prod to run our experiment.
+       max_hits: if set, the maximum number of hits to upload.
        variables: any additional variables to be used to render the HTML.
     """
     inputs = exp.inputs
@@ -95,7 +99,12 @@ def launch_task(exp: ExperimentBatch, use_prod: bool = False, **variables):
     # 2. Tweak properties for the sandbox.
     if not use_prod:
         config = adjust_for_sandbox(config)
-        inputs = inputs[:2]
+        # (Just a sensible default)
+        if max_hits is None:
+            max_hits = 2
+
+    if max_hits != None:
+        inputs = inputs[:max_hits]
 
     htmls = [template.render({'input': sanitize(input_), 'config': config, **variables, })
              for input_ in tqdm(inputs, desc="rendering inputs")]
